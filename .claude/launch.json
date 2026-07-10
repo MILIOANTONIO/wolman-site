@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wolman-site",
+      "runtimeExecutable": "C:\\Users\\anton\\AppData\\Local\\Programs\\PythonEmbed314\\python.exe",
+      "runtimeArgs": ["C:\\Users\\anton\\claude project\\wolman-site\\server\\chat_server.py"],
+      "port": 8080
+    }
+  ]
+}
