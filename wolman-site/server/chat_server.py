@@ -103,6 +103,90 @@ def call_claude(user_message, history):
     return "".join(text_blocks) if text_blocks else "Mi dispiace, non ho una risposta al momento."
 
 
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+RESEND_URL = "https://api.resend.com/emails"
+# Finche' il dominio wolman.it non e' verificato su Resend, il mittente deve
+# restare per forza questo indirizzo di test fornito da loro.
+RESEND_FROM = os.environ.get("RESEND_FROM", "Wolman <onboarding@resend.dev>")
+
+ELEVENLABS_WEBHOOK_SECRET = os.environ.get("ELEVENLABS_WEBHOOK_SECRET")
+
+
+def send_email(to_address, subject, text_body):
+    if not RESEND_API_KEY:
+        raise RuntimeError("RESEND_API_KEY non configurata sul server")
+
+    payload = json.dumps({
+        "from": RESEND_FROM,
+        "to": [to_address],
+        "subject": subject,
+        "text": text_body,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        RESEND_URL,
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer %s" % RESEND_API_KEY,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def build_followup_email(summary):
+    summary_line = ("\n\nRiassunto della chiamata:\n%s\n" % summary) if summary else ""
+    return (
+        "Ciao,\n\n"
+        "Grazie per aver chiamato Wolman - Water Revolution! "
+        "Ecco un riepilogo dei nostri depuratori d'acqua:\n\n"
+        "- Wolman Desktop: da appoggio, nessuna installazione idraulica. Da 499 euro (3 rate da 166,33 euro con Scalapay).\n"
+        "- Wolman Sottolavello: sotto il lavello, rubinetto dedicato, ideale per famiglie numerose. Da 799 euro (3 rate da 266,33 euro con Scalapay).\n"
+        "- Wolman Incasso: a scomparsa nel mobile cucina, installazione professionale inclusa. Da 1.199 euro (3 rate da 399,67 euro con Scalapay).\n"
+        + summary_line +
+        "\nPer procedere all'acquisto o per qualsiasi domanda, scrivici a info@wolman.it.\n\n"
+        "A presto,\nIl team Wolman"
+    )
+
+
+def handle_elevenlabs_webhook(raw_body, signature_header):
+    from elevenlabs import ElevenLabs  # import locale: dipendenza usata solo qui
+
+    if not ELEVENLABS_WEBHOOK_SECRET:
+        raise RuntimeError("ELEVENLABS_WEBHOOK_SECRET non configurata sul server")
+
+    client = ElevenLabs()
+    event = client.webhooks.construct_event(
+        raw_body.decode("utf-8"),
+        signature_header,
+        ELEVENLABS_WEBHOOK_SECRET,
+    )
+
+    event_type = event.get("type")
+    if event_type != "post_call_transcription":
+        return {"skipped": event_type}
+
+    data = event.get("data", {})
+    analysis = data.get("analysis", {}) or {}
+    collected = analysis.get("data_collection_results", {}) or {}
+
+    email_field = collected.get("email") or collected.get("customer_email") or {}
+    email_address = email_field.get("value") if isinstance(email_field, dict) else None
+
+    if not email_address:
+        return {"skipped": "no email collected"}
+
+    summary = analysis.get("transcript_summary", "")
+    send_email(
+        email_address,
+        "Le informazioni richieste - Wolman Water Revolution",
+        build_followup_email(summary),
+    )
+    return {"sent_to": email_address}
+
+
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=SITE_DIR, **kwargs)
@@ -111,6 +195,9 @@ class Handler(SimpleHTTPRequestHandler):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     def do_POST(self):
+        if self.path == "/api/elevenlabs-webhook":
+            self._handle_webhook()
+            return
         if self.path != "/api/chat":
             self.send_error(404, "Not found")
             return
@@ -150,6 +237,20 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception:
             sys.stderr.write("Unexpected error in /api/chat:\n%s\n" % traceback.format_exc())
             self._send_json(500, {"reply": "Errore interno del server. Riprova tra poco."})
+
+    def _handle_webhook(self):
+        length = int(self.headers.get("Content-Length", 0))
+        raw = self.rfile.read(length) if length > 0 else b""
+        signature = self.headers.get("ElevenLabs-Signature", "")
+        try:
+            result = handle_elevenlabs_webhook(raw, signature)
+            sys.stderr.write("ElevenLabs webhook handled: %s\n" % result)
+            self._send_json(200, {"ok": True})
+        except Exception:
+            sys.stderr.write("Webhook error:\n%s\n" % traceback.format_exc())
+            # Rispondiamo comunque 200: se rispondiamo errore, ElevenLabs
+            # ritenta la stessa chiamata piu' volte.
+            self._send_json(200, {"ok": False})
 
     def _send_json(self, status, obj):
         body = json.dumps(obj).encode("utf-8")

@@ -4,10 +4,14 @@ services:
     runtime: python
     plan: free
     rootDir: wolman-site
-    buildCommand: "echo 'Nessuna dipendenza da installare (solo libreria standard Python)'"
+    buildCommand: "pip install -r server/requirements.txt"
     startCommand: "python server/chat_server.py"
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.7
       - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ELEVENLABS_WEBHOOK_SECRET
         sync: false
