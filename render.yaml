@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: wolman-site
+    runtime: python
+    plan: free
+    rootDir: wolman-site
+    buildCommand: "echo 'Nessuna dipendenza da installare (solo libreria standard Python)'"
+    startCommand: "python server/chat_server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: ANTHROPIC_API_KEY
+        sync: false
