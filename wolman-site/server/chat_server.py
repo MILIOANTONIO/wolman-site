@@ -36,8 +36,18 @@ def _load_local_env():
 
 _load_local_env()
 
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
+def _clean_env(name, default=None):
+    # I pannelli web (Render, ecc.) a volte salvano un a-capo finale se il
+    # valore incollato lo conteneva: eliminarlo evita errori "Invalid header
+    # value" quando il valore finisce in un header HTTP.
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip()
+
+
+ANTHROPIC_API_KEY = _clean_env("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL = _clean_env("ANTHROPIC_MODEL", "claude-haiku-4-5")
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
 
@@ -103,13 +113,13 @@ def call_claude(user_message, history):
     return "".join(text_blocks) if text_blocks else "Mi dispiace, non ho una risposta al momento."
 
 
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+RESEND_API_KEY = _clean_env("RESEND_API_KEY")
 RESEND_URL = "https://api.resend.com/emails"
 # Finche' il dominio wolman.it non e' verificato su Resend, il mittente deve
 # restare per forza questo indirizzo di test fornito da loro.
-RESEND_FROM = os.environ.get("RESEND_FROM", "Wolman <onboarding@resend.dev>")
+RESEND_FROM = _clean_env("RESEND_FROM", "Wolman <onboarding@resend.dev>")
 
-ELEVENLABS_WEBHOOK_SECRET = os.environ.get("ELEVENLABS_WEBHOOK_SECRET")
+ELEVENLABS_WEBHOOK_SECRET = _clean_env("ELEVENLABS_WEBHOOK_SECRET")
 
 
 def send_email(to_address, subject, text_body):
