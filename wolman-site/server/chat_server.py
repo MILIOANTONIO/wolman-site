@@ -186,6 +186,10 @@ def handle_elevenlabs_webhook(raw_body, signature_header):
     email_address = email_field.get("value") if isinstance(email_field, dict) else None
 
     if not email_address:
+        sys.stderr.write(
+            "No email in data_collection_results. Chiavi ricevute: %s | contenuto: %s\n"
+            % (list(collected.keys()), collected)
+        )
         return {"skipped": "no email collected"}
 
     summary = analysis.get("transcript_summary", "")
