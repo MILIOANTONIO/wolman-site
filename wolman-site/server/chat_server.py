@@ -9,6 +9,7 @@ the browser.
 import json
 import os
 import sys
+import traceback
 import urllib.request
 import urllib.error
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -116,11 +117,13 @@ class Handler(SimpleHTTPRequestHandler):
 
         length = int(self.headers.get("Content-Length", 0))
         try:
-            data = json.loads(self.rfile.read(length).decode("utf-8"))
+            raw = self.rfile.read(length) if length > 0 else b""
+            data = json.loads(raw.decode("utf-8"))
             user_message = (data.get("message") or "").strip()
             history = data.get("history") or []
             if not user_message:
-                raise ValueError("empty message")
+                self._send_json(400, {"reply": "Messaggio vuoto."})
+                return
 
             reply = call_claude(user_message, history)
             self._send_json(200, {"reply": reply})
@@ -131,14 +134,22 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(502, {
                 "reply": "Il servizio assistente non e' al momento disponibile. Scrivici a info@wolman.it."
             })
+        except urllib.error.URLError as e:
+            sys.stderr.write("Network error reaching Anthropic API: %s\n" % e.reason)
+            self._send_json(502, {
+                "reply": "Non riesco a raggiungere il servizio assistente in questo momento. Riprova tra poco."
+            })
         except RuntimeError as e:
             sys.stderr.write("Config error: %s\n" % e)
             self._send_json(503, {
                 "reply": "L'assistente virtuale non e' ancora configurato su questo server."
             })
-        except Exception as e:
-            sys.stderr.write("Unexpected error: %s\n" % e)
+        except json.JSONDecodeError as e:
+            sys.stderr.write("Bad JSON from client: %s | raw=%r\n" % (e, raw[:200]))
             self._send_json(400, {"reply": "Richiesta non valida."})
+        except Exception:
+            sys.stderr.write("Unexpected error in /api/chat:\n%s\n" % traceback.format_exc())
+            self._send_json(500, {"reply": "Errore interno del server. Riprova tra poco."})
 
     def _send_json(self, status, obj):
         body = json.dumps(obj).encode("utf-8")
