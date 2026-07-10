@@ -131,9 +131,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(10px);
+  background: #FFFFFF;
   border-bottom: 1px solid var(--color-border);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .site-header { background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(10px); }
 }
 .site-header .container {
   display: flex;
@@ -222,7 +224,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 @media (max-width: 900px) {
   .main-nav {
     position: fixed;
-    inset: 76px 0 0 0;
+    top: 76px;
+    left: 0;
+    right: 0;
+    height: calc(100vh - 76px);
+    overflow-y: auto;
     flex-direction: column;
     align-items: stretch;
     background: #fff;
@@ -235,6 +241,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
   .main-nav.is-open { transform: translateX(0); }
   .main-nav a { padding: 16px; font-size: 17px; }
   .nav-toggle { display: inline-flex; }
+}
+@media (max-width: 560px) {
+  /* Header troppo stretto per logo + tagline + bottone + carrello + hamburger
+     tutti insieme: si semplifica lasciando solo logo, carrello e menu. */
+  .brand-tagline { display: none; }
+  .header-actions .btn { display: none; }
+  .header-actions { gap: 8px; }
 }
 
 /* ---------- Hero ---------- */
