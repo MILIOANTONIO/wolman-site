@@ -142,8 +142,13 @@ def send_email(to_address, subject, text_body):
             "Authorization": "Bearer %s" % RESEND_API_KEY,
         },
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", errors="replace")
+        sys.stderr.write("Resend API error %s: %s\n" % (e.code, detail))
+        raise
 
 
 def build_followup_email(summary):
