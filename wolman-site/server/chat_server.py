@@ -140,6 +140,9 @@ def send_email(to_address, subject, text_body):
         headers={
             "Content-Type": "application/json",
             "Authorization": "Bearer %s" % RESEND_API_KEY,
+            # Senza uno User-Agent "normale", Cloudflare (davanti a Resend)
+            # blocca la richiesta come bot (errore 1010) prima che arrivi a Resend.
+            "User-Agent": "wolman-site-server/1.0",
         },
     )
     try:
