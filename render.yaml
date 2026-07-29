@@ -15,3 +15,20 @@ services:
         sync: false
       - key: ELEVENLABS_WEBHOOK_SECRET
         sync: false
+
+  - type: web
+    name: unitel-1mobile-webhook
+    runtime: python
+    plan: free
+    rootDir: unitel-1mobile
+    buildCommand: "pip install -r server/requirements.txt"
+    startCommand: "python server/webhook_server.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: RESEND_API_KEY
+        sync: false
+      - key: ELEVENLABS_WEBHOOK_SECRET
+        sync: false
+      - key: UNITEL_NOTIFY_EMAIL
+        sync: false

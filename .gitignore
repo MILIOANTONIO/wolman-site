@@ -1,3 +1,4 @@
 wolman-site/server/.env.local
+unitel-1mobile/server/.env.local
 __pycache__/
 *.pyc
