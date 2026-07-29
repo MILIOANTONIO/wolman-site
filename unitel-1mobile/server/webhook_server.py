@@ -6,6 +6,7 @@ chiamata (riassunto + dati del dealer chiamante) via Resend.
 Legge le variabili d'ambiente dal sistema, oppure da un file ".env.local"
 nella stessa cartella dello script (mai committato su git).
 """
+import datetime
 import json
 import os
 import sys
@@ -13,6 +14,9 @@ import traceback
 import urllib.request
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from zoneinfo import ZoneInfo
+
+ROME_TZ = ZoneInfo("Europe/Rome")
 
 SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -111,14 +115,24 @@ def _caller_number(data):
     return None
 
 
-def build_summary_email(dealer_nome, dealer_cognome, punto_vendita, motivo, esito, caller_number, summary):
+def _call_time(data):
+    metadata = data.get("metadata", {}) or {}
+    start_unix = metadata.get("start_time_unix_secs")
+    if not start_unix:
+        return None
+    dt = datetime.datetime.fromtimestamp(start_unix, tz=datetime.timezone.utc).astimezone(ROME_TZ)
+    return dt.strftime("%d/%m/%Y %H:%M")
+
+
+def build_summary_email(dealer_nome, dealer_cognome, punto_vendita, motivo, esito, caller_number, call_time, summary):
     nome_completo = " ".join(p for p in [dealer_nome, dealer_cognome] if p) or "Non fornito"
     righe = [
         "Nuova chiamata ricevuta dall'assistente AI dealer 1Mobile.",
         "",
+        "Data e ora chiamata: %s" % (call_time or "Non disponibile"),
+        "Numero chiamante: %s" % (caller_number or "Non disponibile"),
         "Dealer: %s" % nome_completo,
         "Punto vendita: %s" % (punto_vendita or "Non fornito"),
-        "Numero chiamante: %s" % (caller_number or "Non disponibile"),
         "Motivo della chiamata: %s" % (motivo or "Non specificato"),
         "Esito: %s" % (esito or "Non specificato"),
         "",
@@ -158,16 +172,17 @@ def handle_elevenlabs_webhook(raw_body, signature_header):
     esito = _field(collected, "esito")
     summary = analysis.get("transcript_summary", "")
     caller_number = _caller_number(data)
+    call_time = _call_time(data)
 
     sys.stderr.write(
-        "Webhook chiamata: collected_keys=%s caller_number=%s metadata_keys=%s\n"
-        % (list(collected.keys()), caller_number, list((data.get("metadata") or {}).keys()))
+        "Webhook chiamata: collected_keys=%s caller_number=%s call_time=%s metadata_keys=%s\n"
+        % (list(collected.keys()), caller_number, call_time, list((data.get("metadata") or {}).keys()))
     )
 
     send_email(
         NOTIFY_EMAIL,
         "Nuova chiamata dealer 1Mobile - %s" % (dealer_nome or punto_vendita or "chiamante non identificato"),
-        build_summary_email(dealer_nome, dealer_cognome, punto_vendita, motivo, esito, caller_number, summary),
+        build_summary_email(dealer_nome, dealer_cognome, punto_vendita, motivo, esito, caller_number, call_time, summary),
     )
     return {"sent": True}
 
