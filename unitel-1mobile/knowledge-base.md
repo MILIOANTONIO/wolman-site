@@ -12,6 +12,42 @@ Come attivare la promo? App 1Mobile > Porta un amico > genera codice > indicare 
 ## Nuovo processo di attivazione SIM con Supporto Digitale
 Guida in PDF: https://drive.google.com/file/d/1A9-arbS7-M4chdpXQVk7o8z06fXHHfND/view?usp=sharing
 
+Il processo Digitale semplifica l'attivazione delle SIM eliminando l'inserimento manuale dei dati del cliente e la gestione cartacea della documentazione: i dati del cliente vengono acquisiti automaticamente tramite scansione dei documenti, il contratto viene firmato digitalmente tramite OTP (One Time Password), non serve più stampare, firmare e caricare manualmente i moduli.
+
+**Disponibilità**: solo per clienti privati (nuove attivazioni e clienti già esistenti), NON disponibile per clienti business/aziende. Utilizzabile solo tramite il link Pos Light in uso presso i rivenditori. È fondamentale abilitare l'apertura di pop-up sul sito.
+
+**Avvio**: al momento dell'attivazione il sistema chiede se usare Processo Digitale o Processo Manuale (il manuale resta sempre disponibile, basta chiudere il pop-up).
+
+### Attivazione per un NUOVO cliente con processo digitale
+1. Cliccare sul pulsante dedicato alla digitalizzazione (in alto a sinistra) — si apre la pagina del provider di raccolta documentale.
+2. Acquisizione del documento: tramite webcam del PC, oppure tramite smartphone inquadrando il QR code mostrato a video (apre una pagina dedicata per fotografare i documenti).
+3. Selezione del documento da usare: Carta d'identità, Passaporto, o Patente di guida. Seguire le indicazioni a schermo per l'inquadratura (fronte/retro).
+4. Acquisizione del codice fiscale: dopo il documento d'identità, il sistema chiede la scansione della Tessera Sanitaria.
+5. Acquisizione della SIM (solo in caso di MNP/portabilità): la normativa italiana richiede anche una foto della SIM dell'operatore di provenienza.
+6. Verifica dei dati: schermata riepilogativa con tutti i dati rilevati automaticamente — controllare attentamente. **Attenzione**: con Passaporto o Patente di guida alcuni dati (es. indirizzo di residenza) non sono presenti sul documento e vanno compilati manualmente.
+7. Proseguimento come una normale attivazione: seriale SIM o eSIM, eventuale MNP, scelta dell'offerta, pagamento.
+8. **Firma digitale tramite OTP**: si inserisce il numero di cellulare del cliente, si invia l'OTP, il cliente lo riceve e lo inserisce, e il contratto viene firmato elettronicamente. Completata la verifica, l'attivazione viene presa in carico dal sistema.
+
+### Attivazione per un cliente GIÀ ESISTENTE con processo digitale
+1. Ricerca del cliente (Codice Fiscale, Nome e Cognome, o numero di telefono già attivo).
+2. Il sistema chiede se procedere con Processo Digitale o Manuale.
+3. Se Digitale: si clicca il pulsante dedicato, si apre il provider — ma qui NON viene acquisita/compilata l'anagrafica (già presente e validata a sistema): il processo serve solo a raccogliere la documentazione.
+4. Acquisizione documenti: solo foto dei documenti richiesti (webcam o smartphone via QR code), nessuna schermata di verifica anagrafica.
+5. Il flusso prosegue normalmente: SIM/eSIM, eventuale MNP, offerta, pagamento.
+6. Firma digitale tramite OTP come sopra.
+
+Nota: per i clienti esistenti la digitalizzazione serve solo per la documentazione identificativa — i dati anagrafici già a sistema non vengono modificati.
+
+### Vantaggi
+Nessun inserimento manuale dati cliente, acquisizione automatica documenti, niente stampa moduli, firma digitale OTP, meno errori di compilazione, processo più rapido per dealer e cliente.
+
+### Buone pratiche
+- Verificare sempre la leggibilità dei documenti acquisiti.
+- Controllare attentamente tutti i dati prima della conferma finale.
+- In caso di MNP, non dimenticare la foto della SIM del precedente operatore.
+- Usare il processo manuale solo quando quello digitale non è completabile.
+- Assicurarsi che il numero di cellulare per la firma OTP sia corretto e nella disponibilità del cliente.
+
 ## Porta un Amico: generazione e utilizzo codici
 **Azioni che deve eseguire il CLIENTE:**
 1. Accedere all'app 1Mobile
@@ -218,7 +254,23 @@ Contattare l'assistenza al numero 3773744347 inviando il codice fiscale, oppure 
 Significa che la scheda sim si è disattivata perché non è stata effettuata nessuna ricarica nei 365 giorni passati. Per riattivarla serve una ricarica che copra il costo di due mensilità della promo correntemente attiva sulla scheda sim. Per informazioni sulla promo attiva sul numero, inviare una mail a dealer@unomobile.it
 
 ## Ricarica necessaria per l'attivazione delle promo 1Mobile
-Tabella prezzi delle ricariche necessarie per attivare le promo 1Mobile — disponibile come immagine sul sito originale (non estratta in formato testo, va recuperata separatamente se serve all'agente).
+Tabella prezzi: Offerte Nuove Attivazioni e Portabilità Da Tutti (Vodafone Incluso).
+
+| Offerta | Tipologia | Costo Offerta | Ricarica Necessaria |
+|---|---|---|---|
+| Speed 5G 180 | Attivazione | 5€ (1° Mese incluso) → 6,99€ dal 2° mese | 5,00 € |
+| Speed 5G 180 | MNP da TUTTI | 5€ (1° Mese incluso) → 6,99€ dal 2° mese | 0,00 € |
+| Speed 5G 250 | Attivazione | 5€ (1° Mese incluso) → 7,99€ dal 2° mese | 5,00 € |
+| Speed 5G 250 | MNP da TUTTI | 5€ (1° Mese incluso) → 7,99€ dal 2° mese | 0,00 € |
+| Flash 5G 320 Limited Edition | Attivazione | 5€ (1° Mese incluso) → 8,99€ dal 2° mese | 10,00 € |
+| Flash 5G 320 Limited Edition | MNP da TUTTI | 5€ (1° Mese incluso) → 8,99€ dal 2° mese | 0,00 € |
+| Flash 120 | Attivazione | 5,99 € | 5,00 € |
+| Flash 120 | MNP da TUTTI | 5,99 € | 1,00 € |
+| Start Xplus Reward | Attivazione | 4,99€ → 4,49€ dal 3° mese | 10,00 € |
+| Start Xplus Reward | MNP da TUTTI | 4,99€ → 4,49€ dal 3° mese | 10,00 € |
+| World Plus 5G | Attivazione | 9,99 € | 10,00 € |
+| World Plus 5G | MNP da TUTTI | 9,99 € | 10,00 € |
+| X Connect (2 mesi inclusi) | — | 2,50 € | 12,50 € |
 
 ## "Chiamami" e "Richiamami"
 **Chiamami:**
@@ -251,10 +303,10 @@ A questo punto la sim è di nuovo utilizzabile.
 
 ---
 
-## Video tutorial (link Google Drive — DA TRASCRIVERE)
+## Video tutorial (link Google Drive — non nella knowledge base dell'agente)
 1. **Tutorial primo accesso portale 1Mobile.MOV** — https://drive.google.com/file/d/15CBc6H2GEzFerFXF02ijydLdTTXTzZkU/view
 2. **Tutorial nuova attivazione esim 1Mobile.MOV** — https://drive.google.com/file/d/1WodBXqpZ5wgHYUu--sblWG3mO76sOWRA/view
 3. **Tutorial reset password portale 1Mobile.MOV** — https://drive.google.com/file/d/1jW5HoCOZY-2rEGdTlUkawH8dmdLMXxwb/view
 4. **Tutorial nuova attivazione 1Mobile.MOV** — https://drive.google.com/file/d/1y6Bdntl5G6mpBJ7B2U1AFBQdXjrOYzle/view
 
-Nota: il contenuto testuale delle procedure sopra copre già i passaggi mostrati in questi video (sono tutorial delle stesse procedure scritte). La trascrizione integrale non è stata ancora fatta — vedi discussione in conversazione su come procedere (nessun tool di trascrizione locale disponibile su questa macchina).
+Decisione presa il 2026-07-29: i video mostrano solo visivamente le stesse procedure già descritte per intero nel testo sopra (non aggiungono passaggi nuovi), quindi non vengono trascritti né caricati nella knowledge base dell'agente. Restano linkati qui solo come riferimento per i dealer che preferiscono guardarli sul sito originale.

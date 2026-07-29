@@ -124,15 +124,18 @@ def _call_time(data):
     return dt.strftime("%d/%m/%Y %H:%M")
 
 
-def build_summary_email(dealer_nome, dealer_cognome, punto_vendita, motivo, esito, caller_number, call_time, summary):
+def build_summary_email(dealer_nome, dealer_cognome, punto_vendita, citta_indirizzo, dealer_telefono, dealer_email, motivo, esito, caller_number, call_time, summary):
     nome_completo = " ".join(p for p in [dealer_nome, dealer_cognome] if p) or "Non fornito"
+    numero = caller_number or dealer_telefono or "Non disponibile"
     righe = [
         "Nuova chiamata ricevuta dall'assistente AI dealer 1Mobile.",
         "",
         "Data e ora chiamata: %s" % (call_time or "Non disponibile"),
-        "Numero chiamante: %s" % (caller_number or "Non disponibile"),
+        "Numero di telefono: %s" % numero,
+        "Email: %s" % (dealer_email or "Non fornita"),
         "Dealer: %s" % nome_completo,
         "Punto vendita: %s" % (punto_vendita or "Non fornito"),
+        "Città e indirizzo: %s" % (citta_indirizzo or "Non fornito"),
         "Motivo della chiamata: %s" % (motivo or "Non specificato"),
         "Esito: %s" % (esito or "Non specificato"),
         "",
@@ -168,6 +171,9 @@ def handle_elevenlabs_webhook(raw_body, signature_header):
     dealer_nome = _field(collected, "dealer_nome")
     dealer_cognome = _field(collected, "dealer_cognome")
     punto_vendita = _field(collected, "punto_vendita")
+    citta_indirizzo = _field(collected, "citta_indirizzo")
+    dealer_telefono = _field(collected, "dealer_telefono")
+    dealer_email = _field(collected, "dealer_email")
     motivo = _field(collected, "motivo_chiamata")
     esito = _field(collected, "esito")
     summary = analysis.get("transcript_summary", "")
@@ -182,7 +188,10 @@ def handle_elevenlabs_webhook(raw_body, signature_header):
     send_email(
         NOTIFY_EMAIL,
         "Nuova chiamata dealer 1Mobile - %s" % (dealer_nome or punto_vendita or "chiamante non identificato"),
-        build_summary_email(dealer_nome, dealer_cognome, punto_vendita, motivo, esito, caller_number, call_time, summary),
+        build_summary_email(
+            dealer_nome, dealer_cognome, punto_vendita, citta_indirizzo,
+            dealer_telefono, dealer_email, motivo, esito, caller_number, call_time, summary,
+        ),
     )
     return {"sent": True}
 
