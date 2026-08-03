@@ -6,6 +6,20 @@
       "runtimeExecutable": "C:\\Users\\anton\\AppData\\Local\\Programs\\PythonEmbed314\\python.exe",
       "runtimeArgs": ["C:\\Users\\anton\\claude project\\wolman-site\\server\\chat_server.py"],
       "port": 8080
+    },
+    {
+      "name": "pizza-saas-backend",
+      "runtimeExecutable": "C:\\Users\\anton\\claude project\\pizza-saas\\backend\\venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"],
+      "cwd": "C:\\Users\\anton\\claude project\\pizza-saas\\backend",
+      "port": 8000
+    },
+    {
+      "name": "pizza-saas-frontend",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": ["node_modules\\next\\dist\\bin\\next", "dev"],
+      "cwd": "C:\\Users\\anton\\claude project\\pizza-saas\\frontend",
+      "port": 3000
     }
   ]
 }

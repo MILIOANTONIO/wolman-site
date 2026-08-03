@@ -1,4 +1,11 @@
 wolman-site/server/.env.local
 unitel-1mobile/server/.env.local
+pizza-saas/backend/.env.local
+pizza-saas/frontend/.env.local
 __pycache__/
 *.pyc
+pizza-saas/backend/venv/
+pizza-saas/backend/uploads/
+pizza-saas/frontend/node_modules/
+pizza-saas/frontend/.next/
+pizza-saas/frontend/tsconfig.tsbuildinfo
