@@ -13,7 +13,8 @@ from app.auth.session import get_current_owner, require_roles
 from app.db import get_db
 from app.models import CreditTransaction, Offering, Order, OrderItem, Reservation, Tenant, TenantSettings, User
 from app.services import billing
-from app.services.elevenlabs_agents import create_agent, place_outbound_call, update_agent
+from app.routers.ws import manager as ws_manager
+from app.services.elevenlabs_agents import create_agent, get_outbound_call_status, place_outbound_call, update_agent
 from app.services.orders import OrderError, claim_available_orders, update_order_status, update_reservation_status
 from app.services.prompt_builder import build_agent_prompt, render_template_prompt
 
@@ -151,9 +152,42 @@ async def call_confirm_order(order_id: uuid.UUID, user: User = Depends(get_curre
 
     order.confirmation_status = "in_corso"
     order.confirmation_conversation_id = result.get("conversation_id")
+    order.confirmation_error = None
     await db.commit()
 
     return {"ok": True, "conversation_id": order.confirmation_conversation_id}
+
+
+@router.get("/orders/{order_id}/confirmation-status")
+async def get_order_confirmation_status(order_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Interrogato dal frontend con un breve polling mentre confirmation_status
+    e' "in_corso", per mostrare lo stato reale della telefonata (squilla, in
+    conversazione, fallita...) invece di restare bloccati su "in corso" fino
+    all'eventuale webhook di fine chiamata - che per una chiamata mai
+    connessa (es. numero inesistente) potrebbe non arrivare affatto."""
+    order = await db.get(Order, order_id)
+    if not order or order.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+
+    if not order.confirmation_conversation_id or order.confirmation_status not in ("in_corso",):
+        return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
+
+    try:
+        call = await get_outbound_call_status(order.confirmation_conversation_id)
+    except Exception as e:
+        sys.stderr.write(f"get_order_confirmation_status error per ordine {order_id}: {e}\n")
+        return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
+
+    if call["failed"]:
+        order.confirmation_status = "fallita"
+        order.confirmation_error = call["error_reason_it"]
+        await db.commit()
+        await ws_manager.broadcast(str(user.tenant_id), {
+            "type": "order_confirmation_changed", "order_id": str(order.id),
+            "confirmation_status": "fallita", "confirmation_error": order.confirmation_error,
+        })
+
+    return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": call["status_it"]}
 
 
 @router.get("/billing")

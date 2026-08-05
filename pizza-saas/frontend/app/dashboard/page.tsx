@@ -16,6 +16,7 @@ type Order = {
   delivery_address: string | null; delivery_lat: number | null; delivery_lng: number | null;
   assigned_to_user_id: string | null; assigned_to_email: string | null;
   confirmation_status: string | null;
+  confirmation_error?: string | null;
 };
 
 const CONFIRMATION_LABEL: Record<string, { text: string; color: string }> = {
@@ -23,6 +24,7 @@ const CONFIRMATION_LABEL: Record<string, { text: string; color: string }> = {
   confermato: { text: "✅ Confermato al telefono", color: "var(--success, #2e8b57)" },
   rifiutato: { text: "❌ Rifiutato al telefono", color: "var(--accent)" },
   non_risponde: { text: "❌ Non risponde / numero errato", color: "var(--accent)" },
+  fallita: { text: "❌ Chiamata fallita", color: "var(--accent)" },
 };
 
 const NEXT_STATUS: Record<string, { label: string; status: string }[]> = {
@@ -71,6 +73,7 @@ export default function DashboardPage() {
   const [dutyLoading, setDutyLoading] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [justCancelled, setJustCancelled] = useState<{ orderNumber: string; customerName: string | null; phone: string | null } | null>(null);
+  const [callStatusText, setCallStatusText] = useState<Record<string, string>>({});
   const locationStatus = useDeliveryLocationSharing(me?.role === "delivery" && onDuty);
 
   useEffect(() => {
@@ -105,10 +108,32 @@ export default function DashboardPage() {
     setJustCancelled({ orderNumber: order.order_number, customerName: order.customer_name, phone: order.customer_phone });
   }
 
+  async function pollConfirmationStatus(orderId: string, attempt = 0) {
+    if (attempt >= 20) return; // ~1 minuto di polling, poi si ferma da solo
+    try {
+      const res = await api.get(`/api/dashboard/orders/${orderId}/confirmation-status`);
+      if (res.call_status_it) {
+        setCallStatusText((prev) => ({ ...prev, [orderId]: res.call_status_it }));
+      }
+      setOrders((prev) => prev.map((o) => (
+        o.id === orderId ? { ...o, confirmation_status: res.confirmation_status, confirmation_error: res.confirmation_error } : o
+      )));
+      if (res.confirmation_status === "in_corso") {
+        setTimeout(() => pollConfirmationStatus(orderId, attempt + 1), 3000);
+      } else {
+        setCallStatusText((prev) => { const next = { ...prev }; delete next[orderId]; return next; });
+      }
+    } catch {
+      // riprova al prossimo giro, non bloccare il polling per un errore di rete isolato
+      setTimeout(() => pollConfirmationStatus(orderId, attempt + 1), 3000);
+    }
+  }
+
   async function callConfirm(orderId: string) {
-    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, confirmation_status: "in_corso" } : o)));
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, confirmation_status: "in_corso", confirmation_error: null } : o)));
     try {
       await api.post(`/api/dashboard/orders/${orderId}/call-confirm`);
+      setTimeout(() => pollConfirmationStatus(orderId), 3000);
     } catch (err) {
       setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, confirmation_status: null } : o)));
       alert(err instanceof Error ? err.message : "Chiamata non riuscita");
@@ -207,18 +232,28 @@ export default function DashboardPage() {
               <div className="muted">{o.assigned_to_email ? `🛵 assegnato a ${o.assigned_to_email}` : "🛵 nessun fattorino assegnato"}</div>
             )}
             {me?.role === "owner" && o.customer_phone && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-                {o.confirmation_status ? (
-                  <span style={{ fontSize: "0.85rem", fontWeight: 600, color: CONFIRMATION_LABEL[o.confirmation_status]?.color }}>
-                    {CONFIRMATION_LABEL[o.confirmation_status]?.text || o.confirmation_status}
-                  </span>
-                ) : (
-                  <span className="muted" style={{ fontSize: "0.85rem" }}>Chiamata di conferma non ancora fatta</span>
-                )}
-                {o.confirmation_status !== "in_corso" && o.confirmation_status !== "confermato" && (
-                  <button type="button" className="secondary" style={{ padding: "2px 10px", fontSize: "0.8rem" }} onClick={() => callConfirm(o.id)}>
-                    {o.confirmation_status ? "Richiama" : "📞 Chiama per confermare"}
-                  </button>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                  {o.confirmation_status ? (
+                    <span style={{ fontSize: "0.85rem", fontWeight: 600, color: CONFIRMATION_LABEL[o.confirmation_status]?.color }}>
+                      {o.confirmation_status === "in_corso" && callStatusText[o.id] ? callStatusText[o.id] : (CONFIRMATION_LABEL[o.confirmation_status]?.text || o.confirmation_status)}
+                    </span>
+                  ) : (
+                    <span className="muted" style={{ fontSize: "0.85rem" }}>Chiamata di conferma non ancora fatta</span>
+                  )}
+                  {o.confirmation_status !== "in_corso" && o.confirmation_status !== "confermato" && (
+                    <button type="button" className="secondary" style={{ padding: "2px 10px", fontSize: "0.8rem" }} onClick={() => callConfirm(o.id)}>
+                      {o.confirmation_status ? "Richiama" : "📞 Chiama per confermare"}
+                    </button>
+                  )}
+                  {(o.confirmation_status === "fallita" || o.confirmation_status === "non_risponde") && (
+                    <a href={`tel:${o.customer_phone}`}>
+                      <button type="button" style={{ padding: "2px 10px", fontSize: "0.8rem" }}>📱 Chiama tu il cliente</button>
+                    </a>
+                  )}
+                </div>
+                {o.confirmation_status === "fallita" && o.confirmation_error && (
+                  <div className="muted" style={{ fontSize: "0.8rem", marginLeft: 2 }}>Motivo: {o.confirmation_error}</div>
                 )}
               </div>
             )}

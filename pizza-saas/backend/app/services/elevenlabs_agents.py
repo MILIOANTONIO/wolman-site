@@ -162,6 +162,72 @@ async def place_outbound_call(
         return resp.json()
 
 
+CONVERSATIONS_URL = "https://api.elevenlabs.io/v1/convai/conversations"
+
+# Traduzione dei motivi di fallimento SIP piu' comuni (DIDWW/ElevenLabs
+# restituiscono un codice SIP dentro una frase tecnica in inglese, es.
+# "unexpected status from INVITE response: sip status: 486: Busy Here") -
+# il titolare deve capire cosa e' successo senza leggere gergo telefonico.
+_SIP_ERROR_IT = {
+    "400": "numero non valido",
+    "403": "chiamata non autorizzata dal gestore telefonico",
+    "404": "numero inesistente",
+    "480": "cliente momentaneamente non raggiungibile",
+    "486": "numero occupato",
+    "487": "chiamata interrotta prima di rispondere",
+    "488": "problema di compatibilità audio con il gestore telefonico",
+    "500": "problema tecnico temporaneo della linea",
+    "503": "servizio telefonico momentaneamente non disponibile",
+    "603": "chiamata rifiutata",
+}
+
+
+def _translate_sip_error(raw_reason: str | None) -> str:
+    if not raw_reason:
+        return "errore tecnico durante la chiamata"
+    match = re.search(r"\bsip status:\s*(\d{3})|\(SIP (\d{3})\)", raw_reason)
+    code = next((g for g in (match.groups() if match else ()) if g), None)
+    if code and code in _SIP_ERROR_IT:
+        return _SIP_ERROR_IT[code]
+    return "errore tecnico durante la chiamata"
+
+
+async def get_outbound_call_status(conversation_id: str) -> dict:
+    """Stato reale della chiamata su ElevenLabs - usato per capire se una
+    richiamata di conferma e' fallita SUBITO (es. numero inesistente), prima
+    ancora che arrivi il webhook post_call_transcription (che per una
+    chiamata mai realmente connessa potrebbe non arrivare affatto)."""
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY non configurata sul server")
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(f"{CONVERSATIONS_URL}/{conversation_id}", headers=_headers())
+        if resp.status_code >= 400:
+            resp.raise_for_status()
+        data = resp.json()
+
+    status = data.get("status")
+    error = (data.get("metadata") or {}).get("error") or {}
+    return {
+        # initiated -> squilla, in-progress -> risposta/in conversazione,
+        # processing -> chiamata finita, elaborazione in corso, done -> finita
+        "status": status,
+        "status_it": _CALL_STATUS_IT.get(status, status),
+        "failed": status == "failed",
+        "done": status == "done",
+        "error_reason_it": _translate_sip_error(error.get("reason")) if status == "failed" else None,
+    }
+
+
+_CALL_STATUS_IT = {
+    "initiated": "📞 Squilla...",
+    "in-progress": "🗣️ In conversazione...",
+    "processing": "⏳ Chiamata terminata, elaborazione...",
+    "done": "✅ Chiamata terminata",
+    "failed": "❌ Chiamata fallita",
+}
+
+
 async def assign_phone_number(phone_number_id: str, agent_id: str | None) -> None:
     """agent_id=None sospende il numero (ElevenLabs smette di instradarlo a
     qualunque agente) senza doverlo re-importare - usato per la sospensione/

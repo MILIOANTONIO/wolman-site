@@ -281,6 +281,7 @@ class Reservation(Base):
     # Vedi Order.confirmation_status per il significato dei valori.
     confirmation_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     confirmation_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confirmation_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime.datetime] = _now()
 
     resource: Mapped["BookableResource"] = relationship(back_populates="reservations")
@@ -442,6 +443,7 @@ class Order(Base):
     # una risposta (nessuna risposta, numero sbagliato, ecc.).
     confirmation_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     confirmation_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confirmation_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime.datetime] = _now()
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
