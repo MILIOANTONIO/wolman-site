@@ -72,6 +72,9 @@ ELEVENLABS_RESERVATION_TOOL_ID = _clean_env("ELEVENLABS_RESERVATION_TOOL_ID")
 # ID del tool "record_order" - stesso principio del tool di prenotazione sopra,
 # ma per la registrazione ordini durante la chiamata/widget.
 ELEVENLABS_ORDER_TOOL_ID = _clean_env("ELEVENLABS_ORDER_TOOL_ID")
+# ID del tool "check_delivery_distance" - calcola la distanza reale
+# locale/cliente via Google Maps invece di farla stimare (male) al modello.
+ELEVENLABS_DISTANCE_TOOL_ID = _clean_env("ELEVENLABS_DISTANCE_TOOL_ID")
 
 RESEND_API_KEY = _clean_env("RESEND_API_KEY")
 RESEND_URL = "https://api.resend.com/emails"

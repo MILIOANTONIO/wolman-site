@@ -43,9 +43,12 @@ ZONA DI CONSEGNA (delivery):
 {% if settings.delivery_fee_cents %}- Il servizio di consegna a domicilio ha un costo di {{ "%.2f"|format(settings.delivery_fee_cents / 100) }} euro, aggiunto automaticamente al totale (non fare mai tu il calcolo) - comunicalo al cliente quando conferma un ordine delivery.
 {% else %}- La consegna a domicilio è gratuita.
 {% endif %}{% if settings.delivery_notes %}- Note: {{ settings.delivery_notes }}{% endif %}
-{% if settings.pickup_enabled %}Se l'indirizzo del cliente sembra chiaramente fuori zona, avvisalo prima di confermare l'ordine e proponi l'asporto come alternativa.
+{% if channel != "whatsapp" %}- Appena il cliente ti da' l'indirizzo di consegna completo, chiama SEMPRE lo strumento "check_delivery_distance" (con tenant_id={{ tenant.id }} e l'indirizzo) per sapere la distanza reale - non stimarla mai tu ad occhio, anche se l'indirizzo ti sembra vicino o nella stessa citta': indirizzi nella stessa citta' possono comunque essere fuori raggio.
+{% if settings.pickup_enabled %}Se il risultato dice che e' fuori zona, avvisalo prima di confermare l'ordine e proponi l'asporto come alternativa.
+{% else %}Se il risultato dice che e' fuori zona, avvisalo che non puoi consegnare li' - non offrire l'asporto come alternativa, non e' un servizio attivo.
+{% endif %}{% else %}{% if settings.pickup_enabled %}Se l'indirizzo del cliente sembra chiaramente fuori zona, avvisalo prima di confermare l'ordine e proponi l'asporto come alternativa.
 {% else %}Se l'indirizzo del cliente sembra chiaramente fuori zona, avvisalo che non puoi consegnare li' - non offrire l'asporto come alternativa, non e' un servizio attivo.
-{% endif %}{% endif %}
+{% endif %}{% endif %}{% endif %}
 
 {% if settings.table_reservations_enabled and settings.table_capacity %}
 CAPACITÀ SALA (numero indicativo, non è un conteggio in tempo reale):

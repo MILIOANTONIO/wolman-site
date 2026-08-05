@@ -5,6 +5,7 @@ Se la chiave non e' configurata o la chiamata fallisce, l'ordine viene
 comunque creato senza coordinate - la consegna resta assegnabile, solo senza
 criterio di vicinanza (si passa al solo criterio del carico di lavoro).
 """
+import math
 import sys
 
 import httpx
@@ -12,6 +13,15 @@ import httpx
 from app.config import GOOGLE_MAPS_API_KEY
 
 GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+
+
+def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    r = 6371.0  # raggio terrestre in km
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return r * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 async def geocode_address(address: str, *, region_hint: str | None = None) -> tuple[float, float] | None:

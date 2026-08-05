@@ -14,7 +14,7 @@ import sys
 
 import httpx
 
-from app.config import ELEVENLABS_API_KEY, ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID
+from app.config import ELEVENLABS_API_KEY, ELEVENLABS_DISTANCE_TOOL_ID, ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID
 from app.services.claude_client import call_claude_with_tools
 
 BASE_URL = "https://api.elevenlabs.io/v1/convai/agents"
@@ -40,7 +40,7 @@ def _agent_payload(*, name: str, prompt: str, first_message: str, voice_id: str 
     # aggiungere a mano ad ogni pizzeria. Se il tenant non ha le prenotazioni
     # attive il prompt semplicemente non menziona record_reservation, quindi
     # l'agente non lo usa comunque anche se e' tecnicamente disponibile.
-    tool_ids = [t for t in (ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID) if t]
+    tool_ids = [t for t in (ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID, ELEVENLABS_DISTANCE_TOOL_ID) if t]
     if tool_ids:
         prompt_config["tool_ids"] = tool_ids
     return {

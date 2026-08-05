@@ -8,10 +8,13 @@ import uuid
 
 from fastapi import APIRouter, Header, HTTPException, Depends
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ELEVENLABS_WEBHOOK_SECRET
 from app.db import get_db
+from app.models import Tenant, TenantSettings
+from app.services.geocoding import geocode_address, haversine_km
 from app.services.orders import OrderError, create_reservation, resolve_and_create_order
 
 router = APIRouter(prefix="/api/agent-tools", tags=["agent-tools"])
@@ -134,6 +137,45 @@ async def record_reservation_global(
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"reservation_id": str(reservation.id), "starts_at": reservation.starts_at.isoformat()}
+
+
+class CheckDeliveryDistanceBody(BaseModel):
+    tenant_id: uuid.UUID
+    address: str
+
+
+@router.post("/check-delivery-distance")
+async def check_delivery_distance(
+    body: CheckDeliveryDistanceBody,
+    x_tool_secret: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tool globale (stesso schema di record_order/record_reservation): calcola
+    la distanza reale tra l'indirizzo del locale e quello del cliente via
+    geocoding Google, cosi' l'agente non deve indovinare se un indirizzo
+    nella stessa citta' e' dentro o fuori dal raggio di consegna configurato."""
+    _check_tool_secret(x_tool_secret)
+
+    tenant = await db.get(Tenant, body.tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Pizzeria non trovata")
+    settings_row = (await db.execute(
+        select(TenantSettings).where(TenantSettings.tenant_id == body.tenant_id)
+    )).scalar_one_or_none()
+    radius_km = settings_row.delivery_radius_km if settings_row else None
+
+    tenant_address = ", ".join(p for p in (tenant.address, tenant.city) if p)
+    if not tenant_address:
+        return {"distance_km": None, "in_zone": None, "reason": "Indirizzo del locale non configurato"}
+
+    tenant_coords = await geocode_address(tenant_address, region_hint="it")
+    customer_coords = await geocode_address(body.address, region_hint="it")
+    if not tenant_coords or not customer_coords:
+        return {"distance_km": None, "in_zone": None, "reason": "Indirizzo non riconosciuto, chiedi di ripeterlo con via e numero civico"}
+
+    distance_km = round(haversine_km(*tenant_coords, *customer_coords), 1)
+    in_zone = distance_km <= radius_km if radius_km is not None else None
+    return {"distance_km": distance_km, "in_zone": in_zone, "radius_km": radius_km}
 
 
 class RecordOrderGlobalBody(RecordOrderBody):
