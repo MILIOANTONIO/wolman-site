@@ -18,8 +18,9 @@ from app.db import get_db
 from app.models import BookableResource, DidwwRegulatoryProfile, KycDocument, MediaPhoto, Offering, Promotion, Tenant, TenantSettings, User
 from app.services import billing, didww_client, didww_geo
 from app.services.didww_activation import refresh_did_activation
-from app.services.elevenlabs_agents import generate_voice_preview, list_voices
+from app.services.elevenlabs_agents import generate_voice_preview, list_voices, update_agent
 from app.services.menu_import import extract_menu_items
+from app.services.prompt_builder import build_agent_prompt
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -37,6 +38,29 @@ async def _require_tenant(db: AsyncSession, user: User) -> Tenant:
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant non trovato")
     return tenant
+
+
+async def _sync_agent(db: AsyncSession, tenant: Tenant) -> bool:
+    """Ripubblica il prompt (menu/orari/servizi/persona/voce sono tutti
+    generati dentro build_agent_prompt) sull'agente ElevenLabs gia' esistente,
+    cosi' una modifica in dashboard si sente alla prossima chiamata invece di
+    restare "congelata" nella versione del prompt dell'ultima approvazione.
+    Fallisce in modo silenzioso (solo log) - non deve bloccare il salvataggio
+    di dati che di per se' sono gia' andati a buon fine nel nostro DB."""
+    if not tenant.elevenlabs_agent_id:
+        return False
+    try:
+        settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant.id))).scalar_one()
+        prompt = await build_agent_prompt(db, tenant, channel="voice")
+        first_message = f"Ciao, grazie per aver chiamato {tenant.business_name}! Come posso aiutarti?"
+        await update_agent(
+            tenant.elevenlabs_agent_id, name=f"{tenant.business_name} - {settings_row.agent_persona_name}",
+            prompt=prompt, first_message=first_message, voice_id=settings_row.agent_voice_id,
+        )
+        return True
+    except Exception as e:
+        sys.stderr.write(f"Aggiornamento agente ElevenLabs fallito per tenant {tenant.id}: {e}\n")
+        return False
 
 
 class BusinessInfoBody(BaseModel):
@@ -77,7 +101,8 @@ async def update_business_info(body: BusinessInfoBody, user: User = Depends(get_
     tenant.category = body.category
     tenant.timezone = body.timezone
     await db.commit()
-    return {"ok": True}
+    pushed = await _sync_agent(db, tenant)
+    return {"ok": True, "pushed_to_elevenlabs": pushed}
 
 
 class DeliveryZoneBody(BaseModel):
@@ -92,7 +117,8 @@ async def update_delivery_zone(body: DeliveryZoneBody, user: User = Depends(get_
     settings_row.delivery_radius_km = body.delivery_radius_km
     settings_row.delivery_notes = body.delivery_notes
     await db.commit()
-    return {"ok": True}
+    pushed = await _sync_agent(db, tenant)
+    return {"ok": True, "pushed_to_elevenlabs": pushed}
 
 
 class ServicesBody(BaseModel):
@@ -109,7 +135,8 @@ async def update_services(body: ServicesBody, user: User = Depends(get_current_o
     settings_row.pickup_enabled = body.pickup_enabled
     settings_row.table_reservations_enabled = body.table_reservations_enabled
     await db.commit()
-    return {"ok": True}
+    pushed = await _sync_agent(db, tenant)
+    return {"ok": True, "pushed_to_elevenlabs": pushed}
 
 
 class TableCapacityBody(BaseModel):
@@ -123,7 +150,8 @@ async def update_table_capacity(body: TableCapacityBody, user: User = Depends(ge
     settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant.id))).scalar_one()
     settings_row.table_capacity = body.table_capacity
     await db.commit()
-    return {"ok": True}
+    pushed = await _sync_agent(db, tenant)
+    return {"ok": True, "pushed_to_elevenlabs": pushed}
 
 
 @router.post("/logo")
@@ -276,10 +304,12 @@ class BusinessHoursBody(BaseModel):
 
 @router.put("/business-hours")
 async def update_business_hours(body: BusinessHoursBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == user.tenant_id))).scalar_one()
     settings_row.business_hours = body.business_hours
     await db.commit()
-    return {"ok": True}
+    pushed = await _sync_agent(db, tenant)
+    return {"ok": True, "pushed_to_elevenlabs": pushed}
 
 
 class SettingsBody(BaseModel):
@@ -298,7 +328,28 @@ async def update_settings(body: SettingsBody, user: User = Depends(get_current_o
     for field, value in body.model_dump().items():
         setattr(settings_row, field, value)
     await db.commit()
-    return {"ok": True}
+
+    tenant = await db.get(Tenant, user.tenant_id)
+    pushed_to_elevenlabs = False
+    if tenant.elevenlabs_agent_id:
+        # Tenant gia' approvato: persona/tono/voce cambiano il prompt e la
+        # voce dell'agente, quindi vanno ripubblicati subito su ElevenLabs -
+        # altrimenti la chiamata vera continua a usare la configurazione
+        # vecchia finche' qualcuno non tocca un altro campo che lo fa (es.
+        # il prompt personalizzato).
+        try:
+            prompt = await build_agent_prompt(db, tenant, channel="voice")
+            first_message = f"Ciao, grazie per aver chiamato {tenant.business_name}! Come posso aiutarti?"
+            await update_agent(
+                tenant.elevenlabs_agent_id, name=f"{tenant.business_name} - {settings_row.agent_persona_name}",
+                prompt=prompt, first_message=first_message, voice_id=settings_row.agent_voice_id,
+            )
+            pushed_to_elevenlabs = True
+        except Exception as e:
+            sys.stderr.write(f"Aggiornamento impostazioni su ElevenLabs fallito per tenant {user.tenant_id}: {e}\n")
+            raise HTTPException(status_code=502, detail="Impostazioni salvate, ma l'aggiornamento su ElevenLabs è fallito - riprova")
+
+    return {"ok": True, "pushed_to_elevenlabs": pushed_to_elevenlabs}
 
 
 @router.get("/voices")
@@ -333,36 +384,43 @@ async def list_offerings(user: User = Depends(get_current_owner), db: AsyncSessi
 
 @router.post("/offerings")
 async def create_offering(body: OfferingBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     offering = Offering(tenant_id=user.tenant_id, **body.model_dump())
     db.add(offering)
     await db.commit()
     await db.refresh(offering)
+    await _sync_agent(db, tenant)
     return _offering_dict(offering)
 
 
 @router.put("/offerings/{offering_id}")
 async def update_offering(offering_id: uuid.UUID, body: OfferingBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     offering = await db.get(Offering, offering_id)
     if not offering or offering.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="Voce non trovata")
     for field, value in body.model_dump().items():
         setattr(offering, field, value)
     await db.commit()
+    await _sync_agent(db, tenant)
     return _offering_dict(offering)
 
 
 @router.delete("/offerings/{offering_id}")
 async def delete_offering(offering_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     offering = await db.get(Offering, offering_id)
     if not offering or offering.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="Voce non trovata")
     await db.delete(offering)
     await db.commit()
+    await _sync_agent(db, tenant)
     return {"ok": True}
 
 
 @router.post("/offerings/import")
 async def import_offerings(files: list[UploadFile], user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     file_data = [(await f.read(), f.filename or "") for f in files]
     try:
         items = await extract_menu_items(file_data)
@@ -382,6 +440,7 @@ async def import_offerings(files: list[UploadFile], user: User = Depends(get_cur
     await db.commit()
     for offering in created:
         await db.refresh(offering)
+    await _sync_agent(db, tenant)
 
     return {"imported": len(created), "items": [_offering_dict(o) for o in created]}
 
@@ -424,17 +483,20 @@ async def list_promotions(user: User = Depends(get_current_owner), db: AsyncSess
 
 @router.post("/promotions")
 async def create_promotion(body: PromotionBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     if body.promo_type not in ("buy_x_get_y", "percent_discount", "fixed_discount"):
         raise HTTPException(status_code=400, detail="Tipo di promozione non valido")
     promo = Promotion(tenant_id=user.tenant_id, **body.model_dump())
     db.add(promo)
     await db.commit()
     await db.refresh(promo)
+    await _sync_agent(db, tenant)
     return _promotion_dict(promo)
 
 
 @router.put("/promotions/{promotion_id}")
 async def update_promotion(promotion_id: uuid.UUID, body: PromotionBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     if body.promo_type not in ("buy_x_get_y", "percent_discount", "fixed_discount"):
         raise HTTPException(status_code=400, detail="Tipo di promozione non valido")
     promo = await db.get(Promotion, promotion_id)
@@ -443,16 +505,19 @@ async def update_promotion(promotion_id: uuid.UUID, body: PromotionBody, user: U
     for field, value in body.model_dump().items():
         setattr(promo, field, value)
     await db.commit()
+    await _sync_agent(db, tenant)
     return _promotion_dict(promo)
 
 
 @router.delete("/promotions/{promotion_id}")
 async def delete_promotion(promotion_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await _require_tenant(db, user)
     promo = await db.get(Promotion, promotion_id)
     if not promo or promo.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="Promozione non trovata")
     await db.delete(promo)
     await db.commit()
+    await _sync_agent(db, tenant)
     return {"ok": True}
 
 
