@@ -52,6 +52,10 @@ def _agent_payload(*, name: str, prompt: str, first_message: str, voice_id: str 
                 "language": language,
             },
             "tts": tts,
+            # "eager" invece del default "normal": risponde/nota il silenzio
+            # del cliente piu' rapidamente - richiesto dopo un test reale in
+            # cui l'agente sembrava non accorgersi delle pause del cliente.
+            "turn": {"turn_eagerness": "eager"},
         },
     }
 
