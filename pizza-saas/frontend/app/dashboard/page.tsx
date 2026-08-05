@@ -32,6 +32,23 @@ const TITLE_BY_ROLE: Record<string, string> = {
   owner: "Ordini in arrivo",
 };
 
+// Promemoria per chi e' in cucina: quanti minuti sono passati dall'arrivo
+// dell'ordine, aggiornato ogni minuto senza dover ricaricare la pagina.
+function ElapsedMinutes({ createdAt }: { createdAt: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const minutes = Math.max(0, Math.floor((now - new Date(createdAt).getTime()) / 60_000));
+  const urgent = minutes >= 20;
+  return (
+    <span style={{ fontWeight: 700, fontSize: "0.85rem", color: urgent ? "var(--accent)" : "var(--muted)" }}>
+      ⏱ {minutes === 0 ? "appena arrivato" : `${minutes} min fa`}
+    </span>
+  );
+}
+
 const LOCATION_STATUS_LABEL: Record<string, string> = {
   requesting: "📍 Richiesta permesso posizione...",
   sharing: "📍 Posizione condivisa con la pizzeria",
@@ -143,6 +160,7 @@ export default function DashboardPage() {
             <div className="muted">
               {o.channel === "voice" ? "📞" : "💬"} {o.order_type} — {o.customer_name || "cliente"} {o.customer_phone && `(${o.customer_phone})`}
             </div>
+            <div className="muted">🕐 Arrivato alle {new Date(o.created_at).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}</div>
             {o.order_type === "delivery" && o.delivery_address && <div className="muted">📍 {o.delivery_address}</div>}
             {me?.role === "owner" && o.order_type === "delivery" && (
               <div className="muted">{o.assigned_to_email ? `🛵 assegnato a ${o.assigned_to_email}` : "🛵 nessun fattorino assegnato"}</div>
@@ -159,10 +177,13 @@ export default function DashboardPage() {
             </ul>
             <div>{(o.total_cents / 100).toFixed(2)} €</div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {(NEXT_STATUS[o.status] || []).map((next) => (
-              <button key={next.status} onClick={() => changeStatus(o.id, next.status)}>{next.label}</button>
-            ))}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+            <ElapsedMinutes createdAt={o.created_at} />
+            <div style={{ display: "flex", gap: 8 }}>
+              {(NEXT_STATUS[o.status] || []).map((next) => (
+                <button key={next.status} onClick={() => changeStatus(o.id, next.status)}>{next.label}</button>
+              ))}
+            </div>
           </div>
         </div>
       ))}
