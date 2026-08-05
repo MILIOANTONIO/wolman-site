@@ -61,6 +61,8 @@ export default function DashboardPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [onDuty, setOnDuty] = useState(false);
   const [dutyLoading, setDutyLoading] = useState(false);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [justCancelled, setJustCancelled] = useState<{ orderNumber: string; customerName: string | null; phone: string | null } | null>(null);
   const locationStatus = useDeliveryLocationSharing(me?.role === "delivery" && onDuty);
 
   useEffect(() => {
@@ -85,6 +87,12 @@ export default function DashboardPage() {
     } catch {
       // il WebSocket allineerà comunque lo stato reale al prossimo evento
     }
+  }
+
+  async function confirmCancel(order: Order) {
+    setConfirmCancelId(null);
+    await changeStatus(order.id, "annullato");
+    setJustCancelled({ orderNumber: order.order_number, customerName: order.customer_name, phone: order.customer_phone });
   }
 
   async function toggleDuty() {
@@ -114,6 +122,19 @@ export default function DashboardPage() {
   return (
     <div>
       <h1>{TITLE_BY_ROLE[me?.role || "owner"] || "Ordini in arrivo"}</h1>
+
+      {justCancelled && (
+        <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, borderColor: "var(--accent)" }}>
+          <div>
+            <strong>Ordine #{justCancelled.orderNumber} annullato</strong>
+            <div className="muted">Avvisa {justCancelled.customerName || "il cliente"} del motivo prima che arrivi in negozio o si aspetti la consegna.</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {justCancelled.phone && <a href={`tel:${justCancelled.phone}`}><button type="button">📞 Chiama cliente</button></a>}
+            <button type="button" className="secondary" onClick={() => setJustCancelled(null)}>Chiudi</button>
+          </div>
+        </div>
+      )}
 
       {me?.role === "delivery" && (
         <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -179,11 +200,22 @@ export default function DashboardPage() {
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
             <ElapsedMinutes createdAt={o.created_at} />
-            <div style={{ display: "flex", gap: 8 }}>
-              {(NEXT_STATUS[o.status] || []).map((next) => (
-                <button key={next.status} onClick={() => changeStatus(o.id, next.status)}>{next.label}</button>
-              ))}
-            </div>
+            {confirmCancelId === o.id ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="muted" style={{ fontSize: "0.85rem" }}>Annullare l&apos;ordine?</span>
+                <button type="button" onClick={() => confirmCancel(o)}>Sì, annulla</button>
+                <button type="button" className="secondary" onClick={() => setConfirmCancelId(null)}>No</button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                {(NEXT_STATUS[o.status] || []).map((next) => (
+                  <button key={next.status} onClick={() => changeStatus(o.id, next.status)}>{next.label}</button>
+                ))}
+                {me?.role === "owner" && (
+                  <button type="button" className="secondary" onClick={() => setConfirmCancelId(o.id)}>Annulla</button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ))}
