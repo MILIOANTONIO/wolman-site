@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/useMe";
 import { useOrdersSocket } from "@/lib/useOrdersSocket";
@@ -79,6 +79,20 @@ export default function DashboardPage() {
   useEffect(() => {
     api.get("/api/dashboard/orders").then(setOrders).catch(() => {});
   }, []);
+
+  // Se un ordine e' rimasto "in_corso" da prima (es. l'app era chiusa
+  // quando la chiamata e' finita), riprende il controllo dello stato appena
+  // la lista arriva - altrimenti resterebbe bloccato su "in corso" per sempre.
+  const polledRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const o of orders) {
+      if (o.confirmation_status === "in_corso" && !polledRef.current.has(o.id)) {
+        polledRef.current.add(o.id);
+        pollConfirmationStatus(o.id);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders]);
 
   useEffect(() => {
     if (me?.role === "delivery") setOnDuty(me.on_duty);

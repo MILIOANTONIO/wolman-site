@@ -18,6 +18,7 @@ from app.db import SessionLocal
 from app.models import Order, Reservation, Tenant
 from app.routers.ws import manager as ws_manager
 from app.services import billing
+from app.services.orders import trigger_order_confirmation_call, trigger_reservation_confirmation_call
 
 router = APIRouter(prefix="/api/elevenlabs-webhook", tags=["voice"])
 
@@ -95,5 +96,20 @@ async def _handle(raw_body: bytes, signature_header: str | None) -> dict:
                 await ws_manager.broadcast(str(reservation.tenant_id), {
                     "type": "reservation_confirmation_changed", "reservation_id": str(reservation.id), "confirmation_status": "non_risponde",
                 })
+
+            # Chiamata ordine/prenotazione originale appena finita (non una
+            # richiamata di conferma): fa partire la richiamata di conferma
+            # in automatico, senza bisogno del bottone manuale.
+            new_order = (await db.execute(
+                select(Order).where(Order.order_call_conversation_id == conversation_id, Order.confirmation_status.is_(None))
+            )).scalar_one_or_none()
+            if new_order:
+                await trigger_order_confirmation_call(db, new_order)
+
+            new_reservation = (await db.execute(
+                select(Reservation).where(Reservation.order_call_conversation_id == conversation_id, Reservation.confirmation_status.is_(None))
+            )).scalar_one_or_none()
+            if new_reservation:
+                await trigger_reservation_confirmation_call(db, new_reservation)
 
     return {"logged": True, "billed": True, "minutes": minutes}

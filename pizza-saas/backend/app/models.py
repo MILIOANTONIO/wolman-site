@@ -282,6 +282,12 @@ class Reservation(Base):
     confirmation_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     confirmation_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confirmation_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # ID della conversazione ElevenLabs DURANTE LA QUALE e' stato preso
+    # l'ordine/la prenotazione (diverso da confirmation_conversation_id, che
+    # e' la richiamata di conferma successiva) - usato dal webhook di fine
+    # chiamata per far partire la richiamata di conferma in automatico appena
+    # il cliente riaggancia, senza intervento del titolare.
+    order_call_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime.datetime] = _now()
 
     resource: Mapped["BookableResource"] = relationship(back_populates="reservations")
@@ -444,6 +450,12 @@ class Order(Base):
     confirmation_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     confirmation_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     confirmation_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # ID della conversazione ElevenLabs DURANTE LA QUALE e' stato preso
+    # l'ordine/la prenotazione (diverso da confirmation_conversation_id, che
+    # e' la richiamata di conferma successiva) - usato dal webhook di fine
+    # chiamata per far partire la richiamata di conferma in automatico appena
+    # il cliente riaggancia, senza intervento del titolare.
+    order_call_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime.datetime] = _now()
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),

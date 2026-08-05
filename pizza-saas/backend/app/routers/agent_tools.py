@@ -33,6 +33,10 @@ class RecordOrderBody(BaseModel):
     customer_phone: str | None = None
     delivery_address: str | None = None
     items: list[OrderItemIn]
+    # ID di questa conversazione ElevenLabs (il prompt istruisce l'agente a
+    # passare sempre {{system__conversation_id}}) - usato per far partire in
+    # automatico la richiamata di conferma a fine chiamata.
+    conversation_id: str | None = None
 
 
 def _check_tool_secret(x_tool_secret: str | None):
@@ -58,6 +62,7 @@ async def record_order(
             customer_phone=body.customer_phone,
             items_by_name=[item.model_dump() for item in body.items],
             delivery_address=body.delivery_address,
+            conversation_id=body.conversation_id,
         )
     except OrderError as e:
         sys.stderr.write(f"record_order error per tenant {tenant_id}: {e}\n")
@@ -75,6 +80,7 @@ class RecordReservationBody(BaseModel):
     date: str
     time: str
     notes: str | None = None
+    conversation_id: str | None = None
 
 
 @router.post("/{tenant_id}/record-reservation")
@@ -96,6 +102,7 @@ async def record_reservation(
             date=body.date,
             time=body.time,
             notes=body.notes,
+            conversation_id=body.conversation_id,
         )
     except OrderError as e:
         sys.stderr.write(f"record_reservation error per tenant {tenant_id}: {e}\n")
@@ -132,6 +139,7 @@ async def record_reservation_global(
             date=body.date,
             time=body.time,
             notes=body.notes,
+            conversation_id=body.conversation_id,
         )
     except OrderError as e:
         sys.stderr.write(f"record_reservation error per tenant {body.tenant_id}: {e}\n")
@@ -204,6 +212,7 @@ async def record_order_global(
             customer_phone=body.customer_phone,
             items_by_name=[item.model_dump() for item in body.items],
             delivery_address=body.delivery_address,
+            conversation_id=body.conversation_id,
         )
     except OrderError as e:
         sys.stderr.write(f"record_order error per tenant {body.tenant_id}: {e}\n")

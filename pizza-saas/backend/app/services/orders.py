@@ -119,6 +119,7 @@ async def create_order(
     customer_phone: str | None,
     items: list[dict],  # [{"offering_id": ..., "quantity": ..., "notes": ...}]
     delivery_address: str | None = None,
+    conversation_id: str | None = None,
 ) -> Order:
     if not items:
         raise OrderError("L'ordine deve contenere almeno una voce")
@@ -152,6 +153,7 @@ async def create_order(
         delivery_address=delivery_address,
         delivery_lat=delivery_lat,
         delivery_lng=delivery_lng,
+        order_call_conversation_id=conversation_id if channel == "voice" else None,
     )
     db.add(order)
     await db.flush()
@@ -231,6 +233,7 @@ async def resolve_and_create_order(
     customer_phone: str | None,
     items_by_name: list[dict],  # [{"name": "Margherita", "quantity": 2, "notes": "..."}]
     delivery_address: str | None = None,
+    conversation_id: str | None = None,
 ) -> Order:
     """
     Usato da entrambi i canali (tool ElevenLabs, agente WhatsApp): l'AI
@@ -264,6 +267,7 @@ async def resolve_and_create_order(
         customer_phone=customer_phone,
         items=resolved_items,
         delivery_address=delivery_address,
+        conversation_id=conversation_id,
     )
 
 
@@ -278,6 +282,7 @@ async def create_reservation(
     date: str,  # "AAAA-MM-GG"
     time: str,  # "HH:MM"
     notes: str | None,
+    conversation_id: str | None = None,
 ) -> Reservation:
     tenant = await db.get(Tenant, tenant_id)
     if not tenant:
@@ -300,6 +305,7 @@ async def create_reservation(
         starts_at=starts_at,
         status="richiesta",
         notes=notes,
+        order_call_conversation_id=conversation_id if channel == "voice" else None,
     )
     db.add(reservation)
     await db.commit()
@@ -325,6 +331,94 @@ async def create_reservation(
         url="/dashboard/prenotazioni",
     )
     return reservation
+
+
+async def _order_items_summary(db: AsyncSession, order_id: uuid.UUID) -> str:
+    rows = (
+        await db.execute(
+            select(OrderItem, Offering.name)
+            .join(Offering, Offering.id == OrderItem.offering_id)
+            .where(OrderItem.order_id == order_id)
+        )
+    ).all()
+    return ", ".join(f"{i.quantity}x {name}" for i, name in rows)
+
+
+async def trigger_order_confirmation_call(db: AsyncSession, order: Order) -> bool:
+    """Avvia la richiamata di conferma per un ordine (usata sia dal bottone
+    manuale in dashboard sia in automatico a fine chiamata, vedi
+    elevenlabs_webhook.py). Ritorna False senza sollevare eccezioni se manca
+    qualcosa (telefono, agente) o la chiamata API fallisce - un errore qui
+    non deve mai far fallire il resto del webhook/endpoint chiamante."""
+    from app.services.elevenlabs_agents import place_outbound_call
+
+    if not order.customer_phone:
+        return False
+    tenant = await db.get(Tenant, order.tenant_id)
+    if not tenant or not tenant.elevenlabs_agent_id:
+        return False
+
+    items_summary = await _order_items_summary(db, order.id)
+    first_message = (
+        f"Buongiorno, la chiamo da {tenant.business_name} per confermare il suo ordine: "
+        f"{items_summary}, totale {order.total_cents / 100:.2f} euro. Conferma?"
+    )
+    try:
+        result = await place_outbound_call(
+            agent_id=tenant.elevenlabs_agent_id,
+            to_number=order.customer_phone,
+            first_message=first_message,
+            dynamic_variables={"order_id": str(order.id)},
+        )
+    except Exception as e:
+        import sys
+        sys.stderr.write(f"trigger_order_confirmation_call fallita per ordine {order.id}: {e}\n")
+        return False
+
+    order.confirmation_status = "in_corso"
+    order.confirmation_conversation_id = result.get("conversation_id")
+    order.confirmation_error = None
+    await db.commit()
+    await ws_manager.broadcast(str(order.tenant_id), {
+        "type": "order_confirmation_changed", "order_id": str(order.id), "confirmation_status": "in_corso",
+    })
+    return True
+
+
+async def trigger_reservation_confirmation_call(db: AsyncSession, reservation: Reservation) -> bool:
+    from app.services.elevenlabs_agents import place_outbound_call
+
+    if not reservation.customer_phone:
+        return False
+    tenant = await db.get(Tenant, reservation.tenant_id)
+    if not tenant or not tenant.elevenlabs_agent_id:
+        return False
+
+    when = reservation.starts_at.strftime("%d/%m alle %H:%M")
+    first_message = (
+        f"Buongiorno, la chiamo da {tenant.business_name} per confermare la sua prenotazione per "
+        f"{reservation.party_size or ''} persone il {when}. Conferma?"
+    )
+    try:
+        result = await place_outbound_call(
+            agent_id=tenant.elevenlabs_agent_id,
+            to_number=reservation.customer_phone,
+            first_message=first_message,
+            dynamic_variables={"reservation_id": str(reservation.id)},
+        )
+    except Exception as e:
+        import sys
+        sys.stderr.write(f"trigger_reservation_confirmation_call fallita per prenotazione {reservation.id}: {e}\n")
+        return False
+
+    reservation.confirmation_status = "in_corso"
+    reservation.confirmation_conversation_id = result.get("conversation_id")
+    reservation.confirmation_error = None
+    await db.commit()
+    await ws_manager.broadcast(str(reservation.tenant_id), {
+        "type": "reservation_confirmation_changed", "reservation_id": str(reservation.id), "confirmation_status": "in_corso",
+    })
+    return True
 
 
 def _distance_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:

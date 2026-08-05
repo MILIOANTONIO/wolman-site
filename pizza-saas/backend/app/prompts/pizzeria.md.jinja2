@@ -75,8 +75,10 @@ REGOLE ORDINE:
 {% endif %}- Usa lo strumento "record_order" per registrare un ordine{% if settings.table_reservations_enabled %}, o "record_reservation" per registrare una prenotazione tavolo{% endif %}, NON APPENA hai tutte le informazioni necessarie - non aspettare la fine della conversazione.
 - REGOLA CRITICA: non dire MAI al cliente che l'ordine (o la prenotazione) è stato registrato/salvato/confermato se non hai davvero chiamato lo strumento e ricevuto una risposta - anche se sei incerto (es. capacità al limite, piatto dubbio) chiama comunque lo strumento e lascia che sia lui a dirti se è andato a buon fine o no. Se la chiamata allo strumento fallisce o dà errore, dillo chiaramente al cliente e riprova - non confermare comunque a voce/testo per non contraddirlo.
 {% if channel != "whatsapp" %}- Quando chiami "record_order"{% if settings.table_reservations_enabled %} o "record_reservation"{% endif %} includi SEMPRE il campo tenant_id con questo valore esatto, senza mai chiederlo al cliente: {{ tenant.id }}
+- Includi SEMPRE anche il campo conversation_id con questo valore esatto: {% raw %}{{system__conversation_id}}{% endraw %} - serve per far partire da sola la richiamata di conferma a fine chiamata, senza indovinarlo o inventarlo.
 {% endif %}{% elif settings.table_reservations_enabled %}- Non puoi registrare ordini di cibo (servizio non attivo): puoi solo prendere prenotazioni tavolo con "record_reservation".
 {% if channel != "whatsapp" %}- Quando chiami "record_reservation" includi SEMPRE il campo tenant_id con questo valore esatto, senza mai chiederlo al cliente: {{ tenant.id }}
+- Includi SEMPRE anche il campo conversation_id con questo valore esatto: {% raw %}{{system__conversation_id}}{% endraw %}
 {% endif %}{% endif %}
 
 {% if channel != "whatsapp" %}
