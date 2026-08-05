@@ -127,6 +127,23 @@ async def import_phone_number(*, e164_number: str, label: str, agent_id: str | N
 OUTBOUND_CALL_URL = "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call"
 
 
+def _to_e164_it(raw: str) -> str:
+    """Il cliente detta il numero a voce e l'AI lo trascrive cosi' com'e'
+    (es. "3773768606", senza prefisso) - una chiamata in uscita reale invece
+    richiede il formato E.164 completo (+39...), altrimenti il trunk non sa
+    instradarla correttamente. Assume Italia se non c'e' gia' un prefisso."""
+    digits = re.sub(r"[^\d+]", "", raw)
+    if digits.startswith("+"):
+        return digits
+    if digits.startswith("0039"):
+        return "+" + digits[2:]
+    if digits.startswith("39") and len(digits) >= 11:
+        return "+" + digits
+    if digits.startswith("0"):
+        digits = digits[1:]
+    return "+39" + digits
+
+
 async def place_outbound_call(
     *, agent_id: str, to_number: str, first_message: str | None = None, dynamic_variables: dict | None = None
 ) -> dict:
@@ -145,7 +162,7 @@ async def place_outbound_call(
     payload: dict = {
         "agent_id": agent_id,
         "agent_phone_number_id": ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID,
-        "to_number": to_number,
+        "to_number": _to_e164_it(to_number),
     }
     client_data: dict = {}
     if first_message:
