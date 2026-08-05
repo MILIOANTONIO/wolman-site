@@ -73,6 +73,18 @@ services:
         sync: false
       - key: WHATSAPP_VERIFY_TOKEN
         sync: false
+      - key: DIDWW_API_KEY
+        sync: false
+      - key: DIDWW_ENVIRONMENT
+        value: production
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY_RAW_B64URL
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_CONTACT_EMAIL
+        sync: false
     disk:
       name: pizza-saas-uploads
       mountPath: /opt/render/project/src/pizza-saas/backend/uploads
@@ -88,6 +100,8 @@ services:
     envVars:
       - key: NEXT_PUBLIC_API_URL
         value: https://pizza-saas-backend.onrender.com
+      - key: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+        sync: false
 
 databases:
   - name: pizza-saas-db
