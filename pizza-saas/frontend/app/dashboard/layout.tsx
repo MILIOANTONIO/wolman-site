@@ -1,12 +1,23 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/useMe";
 import { ThemeToggle } from "@/lib/ThemeToggle";
 import { usePushNotifications } from "@/lib/usePushNotifications";
 import { useHeartbeat } from "@/lib/useHeartbeat";
+import { useOrdersSocket } from "@/lib/useOrdersSocket";
+import { InstallAppButton } from "@/lib/InstallAppButton";
+
+// Eventi WebSocket che fanno comparire un pallino sulla voce di menu
+// corrispondente - si azzera quando l'utente apre quella pagina. Vale solo
+// per la sessione aperta (non recupera eventi arrivati mentre il browser
+// era chiuso).
+const BADGE_EVENT_TO_HREF: Record<string, string> = {
+  order_created: "/dashboard",
+  reservation_created: "/dashboard/prenotazioni",
+};
 
 const OWNER_LINKS = [
   { href: "/dashboard", label: "Ordini" },
@@ -42,6 +53,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   usePushNotifications(!!me);
   useHeartbeat(!!me);
 
+  const [badges, setBadges] = useState<Record<string, number>>({});
+
+  useOrdersSocket(me?.tenant_id ?? null, (event) => {
+    const href = BADGE_EVENT_TO_HREF[event.type];
+    if (!href || href === pathname) return; // gia' sulla pagina: niente pallino
+    setBadges((prev) => ({ ...prev, [href]: (prev[href] || 0) + 1 }));
+  });
+
+  useEffect(() => {
+    setBadges((prev) => (prev[pathname] ? { ...prev, [pathname]: 0 } : prev));
+  }, [pathname]);
+
   useEffect(() => {
     if (me === null) router.replace("/login");
   }, [me, router]);
@@ -73,12 +96,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className="admin-sidebar">
         <h2>Pizza SaaS</h2>
         {links.map((link) => (
-          <Link key={link.href} href={link.href} className={pathname === link.href ? "active" : ""}>
-            {link.label}
+          <Link
+            key={link.href}
+            href={link.href}
+            className={pathname === link.href ? "active" : ""}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+          >
+            <span>{link.label}</span>
+            {!!badges[link.href] && (
+              <span
+                style={{
+                  background: "var(--accent)", color: "#fff", borderRadius: 999,
+                  fontSize: "0.72rem", fontWeight: 700, minWidth: 18, height: 18,
+                  display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px",
+                }}
+              >
+                {badges[link.href]}
+              </span>
+            )}
           </Link>
         ))}
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
           <ThemeToggle />
+          <InstallAppButton />
           <button onClick={logout} className="secondary">Esci</button>
         </div>
       </aside>
