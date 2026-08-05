@@ -14,7 +14,15 @@ import sys
 
 import httpx
 
-from app.config import ELEVENLABS_API_KEY, ELEVENLABS_DISTANCE_TOOL_ID, ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID
+from app.config import (
+    ELEVENLABS_API_KEY,
+    ELEVENLABS_CONFIRM_ORDER_TOOL_ID,
+    ELEVENLABS_CONFIRM_RESERVATION_TOOL_ID,
+    ELEVENLABS_DISTANCE_TOOL_ID,
+    ELEVENLABS_ORDER_TOOL_ID,
+    ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID,
+    ELEVENLABS_RESERVATION_TOOL_ID,
+)
 from app.services.claude_client import call_claude_with_tools
 
 BASE_URL = "https://api.elevenlabs.io/v1/convai/agents"
@@ -40,7 +48,10 @@ def _agent_payload(*, name: str, prompt: str, first_message: str, voice_id: str 
     # aggiungere a mano ad ogni pizzeria. Se il tenant non ha le prenotazioni
     # attive il prompt semplicemente non menziona record_reservation, quindi
     # l'agente non lo usa comunque anche se e' tecnicamente disponibile.
-    tool_ids = [t for t in (ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID, ELEVENLABS_DISTANCE_TOOL_ID) if t]
+    tool_ids = [t for t in (
+        ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID, ELEVENLABS_DISTANCE_TOOL_ID,
+        ELEVENLABS_CONFIRM_ORDER_TOOL_ID, ELEVENLABS_CONFIRM_RESERVATION_TOOL_ID,
+    ) if t]
     if tool_ids:
         prompt_config["tool_ids"] = tool_ids
     return {
@@ -111,6 +122,44 @@ async def import_phone_number(*, e164_number: str, label: str, agent_id: str | N
             sys.stderr.write(f"ElevenLabs import_phone_number error {resp.status_code}: {resp.text}\n")
             resp.raise_for_status()
         return resp.json()["phone_number_id"]
+
+
+OUTBOUND_CALL_URL = "https://api.elevenlabs.io/v1/convai/sip-trunk/outbound-call"
+
+
+async def place_outbound_call(
+    *, agent_id: str, to_number: str, first_message: str | None = None, dynamic_variables: dict | None = None
+) -> dict:
+    """Fa richiamare l'agente vocale al numero indicato (es. per avvisare di
+    un ordine annullato, o per una richiamata di conferma) tramite il trunk
+    DIDWW in uscita condiviso da tutti i tenant - vedi
+    ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID in config.py. first_message e
+    dynamic_variables permettono di dare all'agente il contesto specifico di
+    QUESTA chiamata (es. quale ordine confermare) senza dover cambiare il
+    prompt salvato sull'agente."""
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY non configurata sul server")
+    if not ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID:
+        raise RuntimeError("ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID non configurata sul server")
+
+    payload: dict = {
+        "agent_id": agent_id,
+        "agent_phone_number_id": ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID,
+        "to_number": to_number,
+    }
+    client_data: dict = {}
+    if first_message:
+        client_data["conversation_config_override"] = {"agent": {"first_message": first_message}}
+    if dynamic_variables:
+        client_data["dynamic_variables"] = dynamic_variables
+    if client_data:
+        payload["conversation_initiation_client_data"] = client_data
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(OUTBOUND_CALL_URL, json=payload, headers=_headers())
+        if resp.status_code >= 400:
+            sys.stderr.write(f"ElevenLabs place_outbound_call error {resp.status_code}: {resp.text}\n")
+            resp.raise_for_status()
+        return resp.json()
 
 
 async def assign_phone_number(phone_number_id: str, agent_id: str | None) -> None:

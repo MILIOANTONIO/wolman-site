@@ -13,7 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import ELEVENLABS_WEBHOOK_SECRET
 from app.db import get_db
-from app.models import Tenant, TenantSettings
+from app.models import Order, Reservation, Tenant, TenantSettings
+from app.routers.ws import manager as ws_manager
 from app.services.geocoding import geocode_address, haversine_km
 from app.services.orders import OrderError, create_reservation, resolve_and_create_order
 
@@ -209,3 +210,61 @@ async def record_order_global(
         raise HTTPException(status_code=400, detail=str(e))
 
     return {"order_id": str(order.id), "order_number": order.order_number, "total_cents": order.total_cents}
+
+
+class ConfirmOrderBody(BaseModel):
+    tenant_id: uuid.UUID
+    order_id: uuid.UUID
+    confirmed: bool
+
+
+@router.post("/confirm-order")
+async def confirm_order(
+    body: ConfirmOrderBody,
+    x_tool_secret: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tool globale usato SOLO durante una richiamata di conferma (avviata da
+    noi via place_outbound_call, mai da una chiamata in entrata normale)."""
+    _check_tool_secret(x_tool_secret)
+    order = await db.get(Order, body.order_id)
+    if not order or order.tenant_id != body.tenant_id:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+
+    order.confirmation_status = "confermato" if body.confirmed else "rifiutato"
+    await db.commit()
+
+    await ws_manager.broadcast(str(body.tenant_id), {
+        "type": "order_confirmation_changed",
+        "order_id": str(order.id),
+        "confirmation_status": order.confirmation_status,
+    })
+    return {"ok": True}
+
+
+class ConfirmReservationBody(BaseModel):
+    tenant_id: uuid.UUID
+    reservation_id: uuid.UUID
+    confirmed: bool
+
+
+@router.post("/confirm-reservation")
+async def confirm_reservation(
+    body: ConfirmReservationBody,
+    x_tool_secret: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    _check_tool_secret(x_tool_secret)
+    reservation = await db.get(Reservation, body.reservation_id)
+    if not reservation or reservation.tenant_id != body.tenant_id:
+        raise HTTPException(status_code=404, detail="Prenotazione non trovata")
+
+    reservation.confirmation_status = "confermato" if body.confirmed else "rifiutato"
+    await db.commit()
+
+    await ws_manager.broadcast(str(body.tenant_id), {
+        "type": "reservation_confirmation_changed",
+        "reservation_id": str(reservation.id),
+        "confirmation_status": reservation.confirmation_status,
+    })
+    return {"ok": True}

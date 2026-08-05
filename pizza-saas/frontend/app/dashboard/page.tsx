@@ -15,6 +15,14 @@ type Order = {
   items: OrderItem[];
   delivery_address: string | null; delivery_lat: number | null; delivery_lng: number | null;
   assigned_to_user_id: string | null; assigned_to_email: string | null;
+  confirmation_status: string | null;
+};
+
+const CONFIRMATION_LABEL: Record<string, { text: string; color: string }> = {
+  in_corso: { text: "📞 Chiamata di conferma in corso...", color: "var(--muted)" },
+  confermato: { text: "✅ Confermato al telefono", color: "var(--success, #2e8b57)" },
+  rifiutato: { text: "❌ Rifiutato al telefono", color: "var(--accent)" },
+  non_risponde: { text: "❌ Non risponde / numero errato", color: "var(--accent)" },
 };
 
 const NEXT_STATUS: Record<string, { label: string; status: string }[]> = {
@@ -78,6 +86,8 @@ export default function DashboardPage() {
       api.get("/api/dashboard/orders").then(setOrders).catch(() => {});
     } else if (event.type === "order_status_changed") {
       setOrders((prev) => prev.map((o) => (o.id === event.order_id ? { ...o, status: event.status } : o)));
+    } else if (event.type === "order_confirmation_changed") {
+      setOrders((prev) => prev.map((o) => (o.id === event.order_id ? { ...o, confirmation_status: event.confirmation_status } : o)));
     }
   });
 
@@ -93,6 +103,16 @@ export default function DashboardPage() {
     setConfirmCancelId(null);
     await changeStatus(order.id, "annullato");
     setJustCancelled({ orderNumber: order.order_number, customerName: order.customer_name, phone: order.customer_phone });
+  }
+
+  async function callConfirm(orderId: string) {
+    setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, confirmation_status: "in_corso" } : o)));
+    try {
+      await api.post(`/api/dashboard/orders/${orderId}/call-confirm`);
+    } catch (err) {
+      setOrders((prev) => prev.map((o) => (o.id === orderId ? { ...o, confirmation_status: null } : o)));
+      alert(err instanceof Error ? err.message : "Chiamata non riuscita");
+    }
   }
 
   async function toggleDuty() {
@@ -185,6 +205,22 @@ export default function DashboardPage() {
             {o.order_type === "delivery" && o.delivery_address && <div className="muted">📍 {o.delivery_address}</div>}
             {me?.role === "owner" && o.order_type === "delivery" && (
               <div className="muted">{o.assigned_to_email ? `🛵 assegnato a ${o.assigned_to_email}` : "🛵 nessun fattorino assegnato"}</div>
+            )}
+            {me?.role === "owner" && o.customer_phone && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+                {o.confirmation_status ? (
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600, color: CONFIRMATION_LABEL[o.confirmation_status]?.color }}>
+                    {CONFIRMATION_LABEL[o.confirmation_status]?.text || o.confirmation_status}
+                  </span>
+                ) : (
+                  <span className="muted" style={{ fontSize: "0.85rem" }}>Chiamata di conferma non ancora fatta</span>
+                )}
+                {o.confirmation_status !== "in_corso" && o.confirmation_status !== "confermato" && (
+                  <button type="button" className="secondary" style={{ padding: "2px 10px", fontSize: "0.8rem" }} onClick={() => callConfirm(o.id)}>
+                    {o.confirmation_status ? "Richiama" : "📞 Chiama per confermare"}
+                  </button>
+                )}
+              </div>
             )}
             <ul style={{ margin: "8px 0", paddingLeft: 20 }}>
               {o.items.map((item, idx) => (

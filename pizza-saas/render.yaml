@@ -33,6 +33,18 @@ services:
         sync: false
       - key: ELEVENLABS_DISTANCE_TOOL_ID
         sync: false
+      - key: ELEVENLABS_CONFIRM_ORDER_TOOL_ID
+        sync: false
+      - key: ELEVENLABS_CONFIRM_RESERVATION_TOOL_ID
+        sync: false
+      - key: ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID
+        sync: false
+      - key: DIDWW_OUTBOUND_SIP_ENDPOINT
+        sync: false
+      - key: DIDWW_OUTBOUND_SIP_USERNAME
+        sync: false
+      - key: DIDWW_OUTBOUND_SIP_PASSWORD
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM

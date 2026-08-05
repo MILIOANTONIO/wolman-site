@@ -13,7 +13,7 @@ from app.auth.session import get_current_owner, require_roles
 from app.db import get_db
 from app.models import CreditTransaction, Offering, Order, OrderItem, Reservation, Tenant, TenantSettings, User
 from app.services import billing
-from app.services.elevenlabs_agents import create_agent, update_agent
+from app.services.elevenlabs_agents import create_agent, place_outbound_call, update_agent
 from app.services.orders import OrderError, claim_available_orders, update_order_status, update_reservation_status
 from app.services.prompt_builder import build_agent_prompt, render_template_prompt
 
@@ -63,6 +63,7 @@ async def list_orders(status: str | None = None, user: User = Depends(_ORDERS_RO
             "delivery_address": order.delivery_address, "delivery_lat": order.delivery_lat, "delivery_lng": order.delivery_lng,
             "assigned_to_user_id": str(order.assigned_to_user_id) if order.assigned_to_user_id else None,
             "assigned_to_email": emails_by_id.get(order.assigned_to_user_id),
+            "confirmation_status": order.confirmation_status,
             "items": [{"name": name, "quantity": i.quantity, "notes": i.notes} for i, name in rows],
         })
     return out
@@ -79,6 +80,80 @@ async def set_order_status(order_id: uuid.UUID, body: StatusBody, user: User = D
     except OrderError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "status": order.status}
+
+
+@router.post("/orders/{order_id}/call-customer")
+async def call_order_customer(order_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Fa richiamare l'agente vocale al cliente (es. per avvisare di un
+    ordine annullato) invece del titolare in prima persona."""
+    order = await db.get(Order, order_id)
+    if not order or order.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+    if not order.customer_phone:
+        raise HTTPException(status_code=400, detail="Nessun numero di telefono registrato per questo ordine")
+
+    tenant = await db.get(Tenant, user.tenant_id)
+    if not tenant.elevenlabs_agent_id:
+        raise HTTPException(status_code=400, detail="Nessun agente vocale collegato a questa pizzeria")
+
+    try:
+        result = await place_outbound_call(agent_id=tenant.elevenlabs_agent_id, to_number=order.customer_phone)
+    except Exception as e:
+        sys.stderr.write(f"call_order_customer error per ordine {order_id}: {e}\n")
+        raise HTTPException(status_code=502, detail="Chiamata non riuscita - riprova o chiama il cliente direttamente")
+
+    return {"ok": True, "conversation_id": result.get("conversation_id")}
+
+
+async def _order_items_summary(db: AsyncSession, order_id: uuid.UUID) -> str:
+    rows = (
+        await db.execute(
+            select(OrderItem, Offering.name)
+            .join(Offering, Offering.id == OrderItem.offering_id)
+            .where(OrderItem.order_id == order_id)
+        )
+    ).all()
+    return ", ".join(f"{i.quantity}x {name}" for i, name in rows)
+
+
+@router.post("/orders/{order_id}/call-confirm")
+async def call_confirm_order(order_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Richiamata di conferma vera e propria: da' all'agente il contesto di
+    QUESTO ordine (via first_message/dynamic_variables), lui rilegge e
+    raccoglie si'/no chiamando "confirm_order" (vedi agent_tools.py e la
+    sezione RICHIAMATA DI CONFERMA nel prompt)."""
+    order = await db.get(Order, order_id)
+    if not order or order.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+    if not order.customer_phone:
+        raise HTTPException(status_code=400, detail="Nessun numero di telefono registrato per questo ordine")
+
+    tenant = await db.get(Tenant, user.tenant_id)
+    if not tenant.elevenlabs_agent_id:
+        raise HTTPException(status_code=400, detail="Nessun agente vocale collegato a questa pizzeria")
+
+    items_summary = await _order_items_summary(db, order.id)
+    first_message = (
+        f"Buongiorno, la chiamo da {tenant.business_name} per confermare il suo ordine: "
+        f"{items_summary}, totale {order.total_cents / 100:.2f} euro. Conferma?"
+    )
+
+    try:
+        result = await place_outbound_call(
+            agent_id=tenant.elevenlabs_agent_id,
+            to_number=order.customer_phone,
+            first_message=first_message,
+            dynamic_variables={"order_id": str(order.id)},
+        )
+    except Exception as e:
+        sys.stderr.write(f"call_confirm_order error per ordine {order_id}: {e}\n")
+        raise HTTPException(status_code=502, detail="Chiamata non riuscita - riprova o chiama il cliente direttamente")
+
+    order.confirmation_status = "in_corso"
+    order.confirmation_conversation_id = result.get("conversation_id")
+    await db.commit()
+
+    return {"ok": True, "conversation_id": order.confirmation_conversation_id}
 
 
 @router.get("/billing")

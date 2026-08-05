@@ -7,7 +7,9 @@ export type OrderEvent =
   | { type: "order_status_changed"; order_id: string; status: string }
   | { type: "order_assigned"; order_id: string; assigned_to_user_id: string }
   | { type: "delivery_location_changed"; user_id: string; email: string; lat: number; lng: number }
-  | { type: "reservation_created"; reservation: Record<string, unknown> };
+  | { type: "reservation_created"; reservation: Record<string, unknown> }
+  | { type: "order_confirmation_changed"; order_id: string; confirmation_status: string }
+  | { type: "reservation_confirmation_changed"; reservation_id: string; confirmation_status: string };
 
 export function useOrdersSocket(tenantId: string | null, onEvent: (e: OrderEvent) => void) {
   const handlerRef = useRef(onEvent);

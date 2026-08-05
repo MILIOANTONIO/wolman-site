@@ -76,6 +76,22 @@ ELEVENLABS_ORDER_TOOL_ID = _clean_env("ELEVENLABS_ORDER_TOOL_ID")
 # locale/cliente via Google Maps invece di farla stimare (male) al modello.
 ELEVENLABS_DISTANCE_TOOL_ID = _clean_env("ELEVENLABS_DISTANCE_TOOL_ID")
 
+# Trunk DIDWW in uscita (my.didww.com > Voice > Outbound Trunks) - condiviso
+# da tutti i tenant, serve a far richiamare l'agente vocale ai clienti
+# (es. ordine annullato). Il numero ElevenLabs usato come "mittente tecnico"
+# e' quello gia' importato per Unitel (NUMERO MESSINA): la configurazione
+# outbound e' un campo indipendente da quella inbound sulla stessa risorsa,
+# quindi non tocca minimamente le chiamate in entrata di Unitel.
+DIDWW_OUTBOUND_SIP_ENDPOINT = _clean_env("DIDWW_OUTBOUND_SIP_ENDPOINT")
+DIDWW_OUTBOUND_SIP_USERNAME = _clean_env("DIDWW_OUTBOUND_SIP_USERNAME")
+DIDWW_OUTBOUND_SIP_PASSWORD = _clean_env("DIDWW_OUTBOUND_SIP_PASSWORD")
+ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID = _clean_env("ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID")
+# ID dei tool "confirm_order"/"confirm_reservation" - usati SOLO durante le
+# richiamate di conferma che avviamo noi (place_outbound_call), mai durante
+# una chiamata in entrata normale (il prompt lo specifica esplicitamente).
+ELEVENLABS_CONFIRM_ORDER_TOOL_ID = _clean_env("ELEVENLABS_CONFIRM_ORDER_TOOL_ID")
+ELEVENLABS_CONFIRM_RESERVATION_TOOL_ID = _clean_env("ELEVENLABS_CONFIRM_RESERVATION_TOOL_ID")
+
 RESEND_API_KEY = _clean_env("RESEND_API_KEY")
 RESEND_URL = "https://api.resend.com/emails"
 RESEND_FROM = _clean_env("RESEND_FROM", "Pizza SaaS <onboarding@resend.dev>")

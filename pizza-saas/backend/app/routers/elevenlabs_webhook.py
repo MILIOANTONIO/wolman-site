@@ -15,7 +15,8 @@ from sqlalchemy import select
 
 from app.config import ELEVENLABS_WEBHOOK_SECRET
 from app.db import SessionLocal
-from app.models import Tenant
+from app.models import Order, Reservation, Tenant
+from app.routers.ws import manager as ws_manager
 from app.services import billing
 
 router = APIRouter(prefix="/api/elevenlabs-webhook", tags=["voice"])
@@ -55,6 +56,7 @@ async def _handle(raw_body: bytes, signature_header: str | None) -> dict:
 
     agent_id = data.get("agent_id") or metadata.get("agent_id")
     duration_secs = metadata.get("call_duration_secs")
+    conversation_id = data.get("conversation_id")
 
     if not agent_id or duration_secs is None:
         sys.stderr.write(f"Webhook senza agent_id/durata utilizzabili: chiavi metadata={list(metadata.keys())}\n")
@@ -68,5 +70,30 @@ async def _handle(raw_body: bytes, signature_header: str | None) -> dict:
 
         minutes = math.ceil(duration_secs / 60)  # come da prassi telefonia, minuto parziale arrotondato per eccesso
         await billing.record_call_minutes(db, tenant, minutes)
+
+        # Se era una richiamata di conferma e l'agente e' arrivato a fine
+        # chiamata senza mai chiamare confirm_order/confirm_reservation
+        # (nessuna risposta, numero sbagliato, ecc.), lo segnaliamo qui -
+        # altrimenti resterebbe "in_corso" per sempre.
+        if conversation_id:
+            order = (await db.execute(
+                select(Order).where(Order.confirmation_conversation_id == conversation_id, Order.confirmation_status == "in_corso")
+            )).scalar_one_or_none()
+            if order:
+                order.confirmation_status = "non_risponde"
+                await db.commit()
+                await ws_manager.broadcast(str(order.tenant_id), {
+                    "type": "order_confirmation_changed", "order_id": str(order.id), "confirmation_status": "non_risponde",
+                })
+
+            reservation = (await db.execute(
+                select(Reservation).where(Reservation.confirmation_conversation_id == conversation_id, Reservation.confirmation_status == "in_corso")
+            )).scalar_one_or_none()
+            if reservation:
+                reservation.confirmation_status = "non_risponde"
+                await db.commit()
+                await ws_manager.broadcast(str(reservation.tenant_id), {
+                    "type": "reservation_confirmation_changed", "reservation_id": str(reservation.id), "confirmation_status": "non_risponde",
+                })
 
     return {"logged": True, "billed": True, "minutes": minutes}

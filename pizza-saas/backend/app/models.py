@@ -278,6 +278,9 @@ class Reservation(Base):
     # richiesta -> confermata -> completata / annullata / no_show
     status: Mapped[str] = mapped_column(String(32), default="richiesta", index=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Vedi Order.confirmation_status per il significato dei valori.
+    confirmation_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    confirmation_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime.datetime] = _now()
 
     resource: Mapped["BookableResource"] = relationship(back_populates="reservations")
@@ -432,6 +435,13 @@ class Order(Base):
     # Fattorino a cui e' stato assegnato l'ordine (assegnazione automatica in
     # services/orders.py quando lo stato passa a "pronta", vedi auto_assign_order).
     assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Richiamata di conferma (agente vocale in uscita): null = mai chiamato,
+    # "in_corso" = chiamata partita ma esito non ancora noto, "confermato"/
+    # "rifiutato" = il cliente ha risposto tramite lo strumento "confirm_order",
+    # "non_risponde" = la chiamata e' terminata senza che l'agente registrasse
+    # una risposta (nessuna risposta, numero sbagliato, ecc.).
+    confirmation_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    confirmation_conversation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime.datetime] = _now()
     updated_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True),
