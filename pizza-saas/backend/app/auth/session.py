@@ -27,6 +27,14 @@ MAX_AGE_SECONDS = 30 * 24 * 3600  # 30 giorni
 # disconnessioni casuali. Lo attiviamo solo quando il frontend gira davvero
 # su HTTPS (produzione).
 _COOKIE_SECURE = FRONTEND_URL.startswith("https://")
+# In produzione frontend e backend sono su due sottodomini onrender.com
+# diversi, che il browser tratta come siti diversi ai fini di SameSite: con
+# "Lax" il cookie arriva sul redirect di login (navigazione top-level) ma
+# viene bloccato sulle chiamate fetch/XHR successive del frontend (es.
+# GET /api/auth/me), che sembrano quindi sempre "non autenticato" anche
+# subito dopo un login Google riuscito. "None" richiede Secure=True, quindi
+# va bene solo quando siamo gia' su HTTPS (mai in locale su http://).
+_COOKIE_SAMESITE = "none" if _COOKIE_SECURE else "lax"
 
 _serializer = URLSafeTimedSerializer(SESSION_SECRET_KEY, salt="pizza-saas-session")
 
@@ -38,7 +46,7 @@ def issue_session_cookie(response: Response, *, sub: str, role: str, tenant_id: 
         token,
         max_age=MAX_AGE_SECONDS,
         httponly=True,
-        samesite="lax",
+        samesite=_COOKIE_SAMESITE,
         secure=_COOKIE_SECURE,
         path="/",
     )
