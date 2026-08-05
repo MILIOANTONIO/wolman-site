@@ -22,7 +22,7 @@ export default function LoginPage() {
       } else {
         await api.post("/api/auth/login", { email, password });
       }
-      router.push("/onboarding");
+      router.push("/dashboard/configurazione");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore");
     } finally {

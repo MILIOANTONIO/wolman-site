@@ -83,6 +83,24 @@ async def get_current_admin(
     return admin
 
 
+def require_roles(*allowed_roles: str):
+    """
+    Dependency factory per limitare un endpoint ai soli sotto-account con un
+    certo User.role (owner/cuoco/receptionista/delivery) - diverso dal
+    "role" del cookie di sessione (che distingue solo portale proprietario
+    da portale admin, sempre "owner" per qualunque utente del tenant).
+    """
+    async def _dependency(user: User = Depends(get_current_user)) -> User:
+        if user.role not in allowed_roles:
+            raise HTTPException(status_code=403, detail="Non hai i permessi per questa sezione")
+        return user
+
+    return _dependency
+
+
+get_current_owner = require_roles("owner")
+
+
 async def get_optional_user(
     ps_session: str | None = Cookie(default=None, alias=COOKIE_NAME),
     db: AsyncSession = Depends(get_db),

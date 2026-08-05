@@ -3,6 +3,7 @@ Login "Accedi con Google" per proprietari tenant e admin, via Authlib.
 Il ruolo (owner/admin) viaggia nello state OAuth per sapere, al callback,
 cosa fare col profilo Google restituito.
 """
+import datetime
 import uuid
 
 from authlib.integrations.starlette_client import OAuth
@@ -55,7 +56,10 @@ async def google_callback(request: Request):
             return response
 
         user = await _find_or_create_owner(db, email, google_sub)
-        response = RedirectResponse(url=f"{FRONTEND_URL}/onboarding")
+        user.last_login_at = datetime.datetime.now(datetime.timezone.utc)
+        user.last_seen_at = user.last_login_at
+        await db.commit()
+        response = RedirectResponse(url=f"{FRONTEND_URL}/dashboard/configurazione")
         issue_session_cookie(response, sub=str(user.id), role="owner", tenant_id=str(user.tenant_id))
         return response
 

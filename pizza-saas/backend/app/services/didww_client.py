@@ -39,19 +39,66 @@ async def _request(method: str, path: str, json_body: dict | None = None, params
         resp = await client.request(method, f"{DIDWW_BASE_URL}{path}", json=json_body, params=params, headers=HEADERS)
         if resp.status_code >= 400:
             sys.stderr.write(f"DIDWW API error {method} {path} {resp.status_code}: {resp.text}\n")
-            resp.raise_for_status()
+            detail = resp.text
+            try:
+                errors = resp.json().get("errors", [])
+                if errors:
+                    detail = "; ".join(e.get("detail") or e.get("title") or "" for e in errors)
+            except Exception:
+                pass
+            raise RuntimeError(f"DIDWW {resp.status_code}: {detail}")
         return resp.json() if resp.content else {}
 
 
-async def search_available_dids(country_id: str, city_id: str | None = None, needs_registration: bool | None = None) -> list[dict]:
-    params = {"filter[country.id]": country_id, "include": "did_group,did_group.stock_keeping_units"}
+async def search_available_dids(
+    country_id: str, city_id: str | None = None, region_id: str | None = None, needs_registration: bool | None = None,
+) -> list[dict]:
+    """
+    Ritorna una lista appiattita e pronta da mostrare in UI: ogni numero
+    disponibile con il nome della sua citta'/zona, l'sku (necessario per
+    prenotare) e il prezzo - senza che il chiamante debba districarsi nel
+    formato JSON:API con "included".
+    """
+    params = {"filter[country.id]": country_id, "include": "did_group,did_group.city,did_group.stock_keeping_units"}
     if city_id:
         params["filter[city.id]"] = city_id
+    if region_id:
+        params["filter[region.id]"] = region_id
     if needs_registration is not None:
         params["filter[did_group.needs_registration]"] = str(needs_registration).lower()
 
     data = await _request("GET", "/available_dids", params=params)
-    return data.get("data", [])
+
+    cities_by_id = {inc["id"]: inc["attributes"]["name"] for inc in data.get("included", []) if inc["type"] == "cities"}
+    skus_by_id = {inc["id"]: inc["attributes"] for inc in data.get("included", []) if inc["type"] == "stock_keeping_units"}
+    groups_by_id = {}
+    for inc in data.get("included", []):
+        if inc["type"] != "did_groups":
+            continue
+        city_rel = (inc.get("relationships", {}).get("city", {}).get("data") or {}).get("id")
+        sku_rels = inc.get("relationships", {}).get("stock_keeping_units", {}).get("data") or []
+        sku_id = sku_rels[0]["id"] if sku_rels else None
+        groups_by_id[inc["id"]] = {
+            "city_name": cities_by_id.get(city_rel),
+            "sku_id": sku_id,
+            "needs_registration": inc.get("meta", {}).get("needs_registration"),
+            **(skus_by_id.get(sku_id) or {}),
+        }
+
+    results = []
+    for did in data.get("data", []):
+        group_id = (did.get("relationships", {}).get("did_group", {}).get("data") or {}).get("id")
+        group = groups_by_id.get(group_id, {})
+        results.append({
+            "available_did_id": did["id"],
+            "number": did["attributes"]["number"],
+            "city_name": group.get("city_name"),
+            "sku_id": group.get("sku_id"),
+            "needs_registration": group.get("needs_registration"),
+            "setup_price": group.get("setup_price"),
+            "monthly_price": group.get("monthly_price"),
+        })
+    return results
 
 
 async def reserve_did(available_did_id: str) -> dict:
@@ -72,7 +119,9 @@ async def create_identity(*, identity_type: str, first_name: str, last_name: str
         "first_name": first_name,
         "last_name": last_name,
         "contact_email": contact_email,
-        "phone_number": phone_number,
+        # DIDWW rifiuta con 422 qualunque carattere non numerico (niente "+"
+        # o spazi) - l'utente puo' scriverlo come preferisce, ripuliamo qui.
+        "phone_number": "".join(c for c in phone_number if c.isdigit()),
     }
     if identity_type == "business":
         attributes["company_name"] = company_name
@@ -123,13 +172,16 @@ async def upload_encrypted_file(file_bytes: bytes, filename: str, content_type: 
     return data["data"]["id"]
 
 
-async def create_address_verification(*, did_reservation_id: str, address_id: str, encrypted_file_ids: list[str]) -> dict:
+async def create_address_verification(*, did_id: str, address_id: str, encrypted_file_ids: list[str]) -> dict:
+    # Va referenziato il DID reale (risorsa "dids"), non la prenotazione -
+    # verificato contro un ordine reale gia' piazzato: la prenotazione da
+    # sola non e' accettata come riferimento valido per la verifica.
     body = {
         "data": {
             "type": "address_verifications",
             "attributes": {"service_description": "Attivazione numero pizza-saas"},
             "relationships": {
-                "dids": {"data": [{"type": "did_reservations", "id": did_reservation_id}]},
+                "dids": {"data": [{"type": "dids", "id": did_id}]},
                 "address": {"data": {"type": "addresses", "id": address_id}},
                 "onetime_files": {"data": [{"type": "encrypted_files", "id": fid} for fid in encrypted_file_ids]},
             },
@@ -141,6 +193,32 @@ async def create_address_verification(*, did_reservation_id: str, address_id: st
 
 async def get_verification_status(verification_id: str) -> dict:
     data = await _request("GET", f"/address_verifications/{verification_id}")
+    return data["data"]
+
+
+async def find_did_by_number(number: str) -> dict | None:
+    """
+    Trova la risorsa "dids" (il numero effettivamente provisionato, diverso
+    dalla prenotazione/ordine) per capire se e' davvero attivo:
+    attributes.awaiting_registration=True finche' la verifica KYC non e'
+    approvata, poi passa a False; blocked/terminated segnalano problemi.
+    """
+    data = await _request("GET", "/dids", params={"filter[number]": number})
+    results = data.get("data", [])
+    return results[0] if results else None
+
+
+async def terminate_did(did_id: str) -> dict:
+    """
+    Cancella davvero il numero (rilascio definitivo, smette di essere
+    fatturato da DIDWW) - "terminated" e' l'unico attributo di stato
+    modificabile via PATCH su questa risorsa (verificato: "blocked",
+    "status", "state", "active", "suspended" sono tutti rifiutati dall'API
+    con "Param not allowed"). Non reversibile: usare solo dopo il periodo di
+    grazia per mancato pagamento, mai per una sospensione temporanea.
+    """
+    body = {"data": {"type": "dids", "id": did_id, "attributes": {"terminated": True}}}
+    data = await _request("PATCH", f"/dids/{did_id}", json_body=body)
     return data["data"]
 
 

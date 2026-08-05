@@ -15,10 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN
 from app.db import SessionLocal, get_db
-from app.models import Tenant, WhatsappChannel, WhatsappConversation
-from app.services.claude_client import RECORD_ORDER_TOOL, call_claude_with_tools
+from app.models import Tenant, TenantSettings, WhatsappChannel, WhatsappConversation
+from app.services.claude_client import RECORD_ORDER_TOOL, RECORD_RESERVATION_TOOL, call_claude_with_tools
 from app.services.crypto import decrypt_token
-from app.services.orders import OrderError, resolve_and_create_order
+from app.services.orders import OrderError, create_reservation, resolve_and_create_order
 from app.services.prompt_builder import build_agent_prompt
 from app.services.whatsapp_client import send_text_message
 
@@ -87,6 +87,14 @@ async def _handle_message(db: AsyncSession, phone_number_id: str, customer_phone
     if not tenant or tenant.status != "active":
         return
 
+    if tenant.billing_status == "suspended":
+        # Sospeso per mancato pagamento (vedi services/billing_enforcement.py):
+        # nessun dettaglio di fatturazione al cliente finale, solo un
+        # messaggio neutro - niente AI/tool-use mentre e' sospeso.
+        access_token = decrypt_token(channel.access_token_encrypted)
+        await send_text_message(phone_number_id, access_token, customer_phone, "Il servizio è momentaneamente non disponibile. Riprova più tardi.")
+        return
+
     conv = (await db.execute(
         select(WhatsappConversation).where(
             WhatsappConversation.tenant_id == tenant.id,
@@ -100,18 +108,24 @@ async def _handle_message(db: AsyncSession, phone_number_id: str, customer_phone
     history = list(conv.history or [])
     history.append({"role": "user", "content": text})
 
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant.id))).scalar_one()
+
     system_prompt = await build_agent_prompt(db, tenant, channel="whatsapp")
     claude_messages = [{"role": m["role"], "content": m["content"]} for m in history[-MAX_HISTORY_MESSAGES:]]
 
-    response = await call_claude_with_tools(system_prompt, claude_messages, tools=[RECORD_ORDER_TOOL])
+    tools = [RECORD_ORDER_TOOL]
+    if settings_row.table_reservations_enabled:
+        tools.append(RECORD_RESERVATION_TOOL)
+
+    response = await call_claude_with_tools(system_prompt, claude_messages, tools=tools)
     content_blocks = response.get("content", [])
 
-    tool_use = next((b for b in content_blocks if b.get("type") == "tool_use" and b.get("name") == "record_order"), None)
+    tool_use = next((b for b in content_blocks if b.get("type") == "tool_use" and b.get("name") in ("record_order", "record_reservation")), None)
     reply_text = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text")
 
     access_token = decrypt_token(channel.access_token_encrypted)
 
-    if tool_use:
+    if tool_use and tool_use.get("name") == "record_order":
         args = tool_use.get("input", {})
         try:
             order = await resolve_and_create_order(
@@ -122,6 +136,7 @@ async def _handle_message(db: AsyncSession, phone_number_id: str, customer_phone
                 customer_name=args.get("customer_name"),
                 customer_phone=customer_phone,
                 items_by_name=args.get("items", []),
+                delivery_address=args.get("delivery_address"),
             )
             reply_text = (
                 f"{reply_text}\n\nOrdine confermato #{order.order_number}, totale {order.total_cents / 100:.2f} euro."
@@ -130,6 +145,27 @@ async def _handle_message(db: AsyncSession, phone_number_id: str, customer_phone
             )
         except OrderError as e:
             reply_text = f"Non riesco a completare l'ordine: {e}. Puoi controllare il menu?"
+    elif tool_use and tool_use.get("name") == "record_reservation":
+        args = tool_use.get("input", {})
+        try:
+            reservation = await create_reservation(
+                db,
+                tenant_id=tenant.id,
+                channel="whatsapp",
+                customer_name=args.get("customer_name"),
+                customer_phone=customer_phone,
+                party_size=args.get("party_size"),
+                date=args.get("date"),
+                time=args.get("time"),
+                notes=args.get("notes"),
+            )
+            reply_text = (
+                f"{reply_text}\n\nPrenotazione confermata per il {args.get('date')} alle {args.get('time')}."
+                if reply_text else
+                f"Prenotazione confermata per il {args.get('date')} alle {args.get('time')}. Grazie!"
+            )
+        except OrderError as e:
+            reply_text = f"Non riesco a completare la prenotazione: {e}."
 
     if not reply_text:
         reply_text = "Come posso aiutarti?"

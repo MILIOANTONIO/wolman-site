@@ -5,19 +5,32 @@ import { api, API_URL, fetchAudioBlobUrl, uploadFile, uploadFiles } from "@/lib/
 type Offering = { id: string; name: string; description: string | null; price_cents: number; unit: string | null; group_name: string | null; ingredients: string | null; is_available: boolean };
 type Voice = { voice_id: string; name: string; preview_url: string | null };
 type Plan = { name: string; price_cents: number; included_minutes: number; included_numbers: number };
+type Status = { type: "ok" | "error"; text: string } | null;
+
+function StatusInline({ status }: { status: Status }) {
+  if (!status) return null;
+  return (
+    <span style={{ marginLeft: 12, fontWeight: 600, fontSize: "0.9rem", color: status.type === "ok" ? "var(--success)" : "var(--accent)" }}>
+      {status.type === "ok" ? "✓ " : "⚠ "}{status.text}
+    </span>
+  );
+}
 
 export default function OnboardingPage() {
   const [businessName, setBusinessName] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [savingBusiness, setSavingBusiness] = useState(false);
+  const [businessStatus, setBusinessStatus] = useState<Status>(null);
 
   const [plans, setPlans] = useState<Record<string, Plan>>({});
   const [selectedPlan, setSelectedPlan] = useState("starter");
+  const [planStatus, setPlanStatus] = useState<Status>(null);
 
   const [offerings, setOfferings] = useState<Offering[]>([]);
   const [newItem, setNewItem] = useState({ name: "", price: "", group_name: "", ingredients: "" });
   const [importing, setImporting] = useState(false);
+  const [menuStatus, setMenuStatus] = useState<Status>(null);
 
   const [personaName, setPersonaName] = useState("Assistente");
   const [tone, setTone] = useState("amichevole");
@@ -25,18 +38,26 @@ export default function OnboardingPage() {
   const [voiceId, setVoiceId] = useState("");
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [loadingVoiceId, setLoadingVoiceId] = useState<string | null>(null);
+  const [savingAgent, setSavingAgent] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<Status>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewCacheRef = useRef<Record<string, string>>({}); // voice_id -> blob URL, per non rigenerare l'audio ad ogni ascolto
 
   const [identityDocType, setIdentityDocType] = useState("owner_id");
   const [uploadedDocs, setUploadedDocs] = useState<string[]>([]);
+  const [uploadingIdentityDocs, setUploadingIdentityDocs] = useState(false);
+  const [uploadingAddressDocs, setUploadingAddressDocs] = useState(false);
+  const [identityDocsStatus, setIdentityDocsStatus] = useState<Status>(null);
+  const [addressDocsStatus, setAddressDocsStatus] = useState<Status>(null);
 
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoStatus, setLogoStatus] = useState<Status>(null);
   const [confirmCallEnabled, setConfirmCallEnabled] = useState(false);
 
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadingTenant, setLoadingTenant] = useState(true);
+  const [reviewStatus, setReviewStatus] = useState<Status>(null);
+  const [submittingReview, setSubmittingReview] = useState(false);
 
   useEffect(() => {
     api.get("/api/onboarding/offerings").then(setOfferings).catch(() => {});
@@ -52,19 +73,20 @@ export default function OnboardingPage() {
       setTone(t.agent_tone);
       setVoiceId(t.agent_voice_id || "");
       setConfirmCallEnabled(t.confirm_call_enabled);
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setLoadingTenant(false));
   }, []);
 
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingLogo(true);
-    setError(null);
+    setLogoStatus(null);
     try {
       const result = await uploadFile("/api/onboarding/logo", file);
       setLogoUrl(result.logo_url);
+      setLogoStatus({ type: "ok", text: "Logo caricato" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore caricamento logo");
+      setLogoStatus({ type: "error", text: err instanceof Error ? err.message : "Errore caricamento logo" });
     } finally {
       setUploadingLogo(false);
       e.target.value = "";
@@ -72,25 +94,25 @@ export default function OnboardingPage() {
   }
 
   async function savePlan(planCode: string) {
-    setError(null);
+    setPlanStatus(null);
     try {
       await api.put("/api/onboarding/plan", { plan: planCode });
       setSelectedPlan(planCode);
-      setMessage("Piano selezionato.");
+      setPlanStatus({ type: "ok", text: "Piano selezionato e salvato" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore");
+      setPlanStatus({ type: "error", text: err instanceof Error ? err.message : "Errore" });
     }
   }
 
   async function saveBusiness(e: React.FormEvent) {
     e.preventDefault();
     setSavingBusiness(true);
-    setError(null);
+    setBusinessStatus(null);
     try {
       await api.put("/api/onboarding/business", { business_name: businessName, address, city, timezone: "Europe/Rome" });
-      setMessage("Dati attività salvati.");
+      setBusinessStatus({ type: "ok", text: "Salvato" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore");
+      setBusinessStatus({ type: "error", text: err instanceof Error ? err.message : "Errore" });
     } finally {
       setSavingBusiness(false);
     }
@@ -98,6 +120,7 @@ export default function OnboardingPage() {
 
   async function addOffering(e: React.FormEvent) {
     e.preventDefault();
+    setMenuStatus(null);
     try {
       const created = await api.post("/api/onboarding/offerings", {
         name: newItem.name,
@@ -108,28 +131,29 @@ export default function OnboardingPage() {
       });
       setOfferings([...offerings, created]);
       setNewItem({ name: "", price: "", group_name: "", ingredients: "" });
+      setMenuStatus({ type: "ok", text: `"${created.name}" aggiunta al menu` });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore");
+      setMenuStatus({ type: "error", text: err instanceof Error ? err.message : "Errore" });
     }
   }
 
-  async function removeOffering(id: string) {
+  async function removeOffering(id: string, name: string) {
     await api.delete(`/api/onboarding/offerings/${id}`);
     setOfferings(offerings.filter((o) => o.id !== id));
+    setMenuStatus({ type: "ok", text: `"${name}" rimossa` });
   }
 
   async function importMenu(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files ? Array.from(e.target.files) : [];
     if (files.length === 0) return;
     setImporting(true);
-    setError(null);
-    setMessage(null);
+    setMenuStatus(null);
     try {
       const result = await uploadFiles("/api/onboarding/offerings/import", files);
       setOfferings([...offerings, ...result.items]);
-      setMessage(`Importate ${result.imported} voci di menu. Controllale qui sotto e correggi/rimuovi quelle sbagliate.`);
+      setMenuStatus({ type: "ok", text: `Importate ${result.imported} voci — controllale qui sotto e correggi/rimuovi quelle sbagliate` });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore importazione");
+      setMenuStatus({ type: "error", text: err instanceof Error ? err.message : "Errore importazione" });
     } finally {
       setImporting(false);
       e.target.value = "";
@@ -161,7 +185,7 @@ export default function OnboardingPage() {
       await audio.play();
       setPlayingVoiceId(voice.voice_id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore nella generazione dell'anteprima");
+      setAgentStatus({ type: "error", text: err instanceof Error ? err.message : "Errore nella generazione dell'anteprima" });
     } finally {
       setLoadingVoiceId(null);
     }
@@ -169,6 +193,8 @@ export default function OnboardingPage() {
 
   async function saveSettings(e: React.FormEvent) {
     e.preventDefault();
+    setSavingAgent(true);
+    setAgentStatus(null);
     try {
       const voice = voices.find((v) => v.voice_id === voiceId);
       await api.put("/api/onboarding/settings", {
@@ -180,41 +206,54 @@ export default function OnboardingPage() {
         agent_voice_name: voice?.name || null,
         confirm_call_enabled: confirmCallEnabled,
       });
-      setMessage("Impostazioni agente salvate.");
+      setAgentStatus({ type: "ok", text: "Impostazioni salvate" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore");
+      setAgentStatus({ type: "error", text: err instanceof Error ? err.message : "Errore" });
+    } finally {
+      setSavingAgent(false);
     }
   }
 
-  async function uploadDocs(files: FileList | null, docType: string, label: string) {
+  async function uploadDocs(files: FileList | null, docType: string, label: string, setUploading: (v: boolean) => void, setStatus: (s: Status) => void) {
     if (!files || files.length === 0) return;
-    setError(null);
+    setUploading(true);
+    setStatus(null);
     try {
+      let count = 0;
       for (const file of Array.from(files)) {
         await uploadFile("/api/onboarding/kyc-documents", file, { doc_type: docType });
         setUploadedDocs((prev) => [...prev, `${label}: ${file.name}`]);
+        count += 1;
       }
+      setStatus({ type: "ok", text: `${count} file caricati` });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore caricamento");
+      setStatus({ type: "error", text: err instanceof Error ? err.message : "Errore caricamento" });
+    } finally {
+      setUploading(false);
     }
   }
 
   async function submitForReview() {
-    setError(null);
+    setSubmittingReview(true);
+    setReviewStatus(null);
     try {
       const result = await api.post("/api/onboarding/submit-for-review");
-      setMessage(`Inviato per revisione! Stato: ${result.status}. Ti avviseremo via email appena attivo.`);
+      setReviewStatus({ type: "ok", text: `Inviato! Stato: ${result.status}. Ti avviseremo via email appena attivo.` });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Errore");
+      setReviewStatus({ type: "error", text: err instanceof Error ? err.message : "Errore" });
+    } finally {
+      setSubmittingReview(false);
     }
+  }
+
+  if (loadingTenant) {
+    return <div className="page">Caricamento...</div>;
   }
 
   return (
     <div className="page">
       <h1>Configura la tua pizzeria</h1>
-      <p className="muted">Completa questi passaggi, poi invia per revisione.</p>
-      {message && <div className="card" style={{ borderColor: "var(--success)" }}>{message}</div>}
-      {error && <div className="error">{error}</div>}
+      <p className="muted">Completa questi passaggi, poi invia per revisione. Ogni sezione mostra la propria conferma di salvataggio accanto al pulsante.</p>
 
       <div className="card">
         <h2>1. Dati attività</h2>
@@ -229,6 +268,8 @@ export default function OnboardingPage() {
             </div>
           )}
           <input type="file" accept=".png,.jpg,.jpeg,.webp,.svg" onChange={handleLogoUpload} disabled={uploadingLogo} />
+          {uploadingLogo && <span className="muted">Caricamento...</span>}
+          <StatusInline status={logoStatus} />
         </div>
 
         <form onSubmit={saveBusiness}>
@@ -238,7 +279,10 @@ export default function OnboardingPage() {
           <input value={address} onChange={(e) => setAddress(e.target.value)} />
           <label>Città</label>
           <input value={city} onChange={(e) => setCity(e.target.value)} />
-          <button type="submit" disabled={savingBusiness} style={{ marginTop: 16 }}>Salva</button>
+          <div style={{ display: "flex", alignItems: "center", marginTop: 16 }}>
+            <button type="submit" disabled={savingBusiness}>{savingBusiness ? "Salvataggio..." : "Salva"}</button>
+            <StatusInline status={businessStatus} />
+          </div>
         </form>
       </div>
 
@@ -259,9 +303,11 @@ export default function OnboardingPage() {
               <div style={{ fontSize: "1.4rem", margin: "8px 0" }}>{(plan.price_cents / 100).toFixed(0)} €<span className="muted" style={{ fontSize: "0.9rem" }}>/mese</span></div>
               <div className="muted">{plan.included_minutes} minuti inclusi</div>
               <div className="muted">{plan.included_numbers} numero italiano</div>
+              {selectedPlan === code && <div style={{ marginTop: 8, color: "var(--accent)", fontWeight: 600, fontSize: "0.85rem" }}>✓ Selezionato</div>}
             </div>
           ))}
         </div>
+        <StatusInline status={planStatus} />
       </div>
 
       <div className="card">
@@ -273,22 +319,24 @@ export default function OnboardingPage() {
           {importing && <p className="muted">Sto leggendo il menu, un momento...</p>}
         </div>
 
+        {offerings.length === 0 && <p className="muted">Nessuna voce di menu ancora — importa un file/foto sopra, oppure aggiungi a mano qui sotto.</p>}
         {offerings.map((o) => (
           <div key={o.id} className="order-card">
             <span>
               {o.name} {o.group_name && <span className="muted">({o.group_name})</span>} — {(o.price_cents / 100).toFixed(2)} €
               {o.ingredients && <div className="muted">{o.ingredients}</div>}
             </span>
-            <button className="secondary" onClick={() => removeOffering(o.id)}>Rimuovi</button>
+            <button className="secondary" onClick={() => removeOffering(o.id, o.name)}>Rimuovi</button>
           </div>
         ))}
-        <form onSubmit={addOffering} style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+        <form onSubmit={addOffering} style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
           <input placeholder="Nome piatto" value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} required style={{ flex: "2 1 160px", minWidth: 160 }} />
           <input placeholder="Categoria (es. Pizze)" value={newItem.group_name} onChange={(e) => setNewItem({ ...newItem, group_name: e.target.value })} style={{ flex: "1 1 140px", minWidth: 140 }} />
           <input placeholder="Ingredienti (opzionale)" value={newItem.ingredients} onChange={(e) => setNewItem({ ...newItem, ingredients: e.target.value })} style={{ flex: "2 1 180px", minWidth: 180 }} />
           <input placeholder="Prezzo €" value={newItem.price} onChange={(e) => setNewItem({ ...newItem, price: e.target.value })} required style={{ flex: "0 1 100px", minWidth: 90 }} />
           <button type="submit">Aggiungi</button>
         </form>
+        <StatusInline status={menuStatus} />
       </div>
 
       <div className="card">
@@ -302,7 +350,7 @@ export default function OnboardingPage() {
             <option value="professionale">Professionale</option>
             <option value="brillante">Brillante</option>
           </select>
-          <label>Voce (ascolta e scegli)</label>
+          <label>Voce (ascolta e scegli){voiceId && voices.find((v) => v.voice_id === voiceId) && <span className="muted"> — attuale: {voices.find((v) => v.voice_id === voiceId)?.name}</span>}</label>
           <audio ref={previewAudioRef} onEnded={() => setPlayingVoiceId(null)} style={{ display: "none" }} />
           <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
             {voices.map((v) => (
@@ -328,7 +376,10 @@ export default function OnboardingPage() {
               </label>
             ))}
           </div>
-          <button type="submit" style={{ marginTop: 16 }}>Salva impostazioni agente</button>
+          <div style={{ display: "flex", alignItems: "center", marginTop: 16 }}>
+            <button type="submit" disabled={savingAgent}>{savingAgent ? "Salvataggio..." : "Salva impostazioni agente"}</button>
+            <StatusInline status={agentStatus} />
+          </div>
         </form>
       </div>
 
@@ -337,31 +388,45 @@ export default function OnboardingPage() {
         <p className="muted">Servono per l&apos;attivazione del numero di telefono: un documento d&apos;identità (o dell&apos;attività) e una prova di indirizzo. Puoi caricare più file per ciascuna sezione (es. fronte e retro).</p>
 
         <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 12, marginBottom: 16 }}>
-          <h3 style={{ marginTop: 0, fontSize: "1rem" }}>4a. Documento d&apos;identità o dell&apos;attività</h3>
+          <h3 style={{ marginTop: 0, fontSize: "1rem" }}>5a. Documento d&apos;identità o dell&apos;attività</h3>
           <label>Tipo</label>
           <select value={identityDocType} onChange={(e) => setIdentityDocType(e.target.value)}>
             <option value="owner_id">Documento d&apos;identità titolare</option>
             <option value="business_registration">Visura camerale / registrazione attività</option>
           </select>
           <label>File (uno o più)</label>
-          <input type="file" multiple onChange={(e) => uploadDocs(e.target.files, identityDocType, "Identità/attività")} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="file" multiple disabled={uploadingIdentityDocs} onChange={(e) => uploadDocs(e.target.files, identityDocType, "Identità/attività", setUploadingIdentityDocs, setIdentityDocsStatus)} />
+            {uploadingIdentityDocs && <span className="muted">Caricamento...</span>}
+            <StatusInline status={identityDocsStatus} />
+          </div>
         </div>
 
         <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
-          <h3 style={{ marginTop: 0, fontSize: "1rem" }}>4b. Prova di indirizzo</h3>
+          <h3 style={{ marginTop: 0, fontSize: "1rem" }}>5b. Prova di indirizzo</h3>
           <label>File (uno o più)</label>
-          <input type="file" multiple onChange={(e) => uploadDocs(e.target.files, "address_proof", "Indirizzo")} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="file" multiple disabled={uploadingAddressDocs} onChange={(e) => uploadDocs(e.target.files, "address_proof", "Indirizzo", setUploadingAddressDocs, setAddressDocsStatus)} />
+            {uploadingAddressDocs && <span className="muted">Caricamento...</span>}
+            <StatusInline status={addressDocsStatus} />
+          </div>
         </div>
 
         {uploadedDocs.length > 0 && (
-          <ul style={{ marginTop: 16 }}>{uploadedDocs.map((d, i) => <li key={i}>{d}</li>)}</ul>
+          <div style={{ marginTop: 16 }}>
+            <strong style={{ fontSize: "0.9rem" }}>File caricati in questa sessione:</strong>
+            <ul>{uploadedDocs.map((d, i) => <li key={i}>{d}</li>)}</ul>
+          </div>
         )}
       </div>
 
       <div className="card">
         <h2>6. Invia per revisione</h2>
         <p className="muted">Un operatore verificherà i documenti e attiverà il tuo numero e l&apos;agente AI.</p>
-        <button onClick={submitForReview}>Invia per revisione</button>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <button onClick={submitForReview} disabled={submittingReview}>{submittingReview ? "Invio..." : "Invia per revisione"}</button>
+          <StatusInline status={reviewStatus} />
+        </div>
       </div>
     </div>
   );

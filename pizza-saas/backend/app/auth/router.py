@@ -1,4 +1,5 @@
 """Signup/login via email+password, logout, e /me - alternativa a Google."""
+import datetime
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -55,6 +56,10 @@ async def login(body: LoginBody, response: Response, db: AsyncSession = Depends(
     if not user or not user.password_hash or not pwd_context.verify(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Email o password errati")
 
+    user.last_login_at = datetime.datetime.now(datetime.timezone.utc)
+    user.last_seen_at = user.last_login_at
+    await db.commit()
+
     issue_session_cookie(response, sub=str(user.id), role="owner", tenant_id=str(user.tenant_id))
     return {"ok": True}
 
@@ -67,4 +72,4 @@ async def logout(response: Response):
 
 @router.get("/me")
 async def me(user: User = Depends(get_current_user)):
-    return {"id": str(user.id), "email": user.email, "tenant_id": str(user.tenant_id), "role": user.role}
+    return {"id": str(user.id), "email": user.email, "tenant_id": str(user.tenant_id), "role": user.role, "on_duty": user.on_duty}

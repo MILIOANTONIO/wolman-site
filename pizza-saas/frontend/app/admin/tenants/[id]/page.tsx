@@ -58,7 +58,22 @@ export default function AdminTenantDetail() {
     router.push("/admin/tenants");
   }
 
-  if (!tenant) return <div>Caricamento...</div>;
+  if (!tenant) {
+    return (
+      <div>
+        {error ? (
+          <div className="error">
+            {error}
+            <div style={{ marginTop: 12 }}>
+              <button onClick={reload}>Riprova</button>
+            </div>
+          </div>
+        ) : (
+          "Caricamento..."
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 700 }}>

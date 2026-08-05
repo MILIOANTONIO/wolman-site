@@ -1,11 +1,14 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { api, API_URL } from "@/lib/api";
+import { ThemeToggle } from "@/lib/ThemeToggle";
 
 const LINKS = [
   { href: "/admin", label: "Panoramica" },
   { href: "/admin/tenants", label: "Pizzerie" },
+  { href: "/admin/didww", label: "DIDWW" },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -39,10 +42,13 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <aside className="admin-sidebar">
         <h2>Pizza SaaS Admin</h2>
         {LINKS.map((link) => (
-          <a key={link.href} href={link.href} className={pathname === link.href ? "active" : ""}>
+          <Link key={link.href} href={link.href} className={pathname === link.href ? "active" : ""}>
             {link.label}
-          </a>
+          </Link>
         ))}
+        <div style={{ marginTop: 16 }}>
+          <ThemeToggle />
+        </div>
       </aside>
       <main className="admin-main">{children}</main>
     </div>

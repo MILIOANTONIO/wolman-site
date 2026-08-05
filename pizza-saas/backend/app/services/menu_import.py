@@ -104,7 +104,14 @@ async def extract_menu_items(files: list[tuple[bytes, str]]) -> list[dict]:
         "Usa lo strumento extract_menu_items per registrare il risultato."
     )
 
-    response = await call_claude_with_tools(system_prompt, messages, tools=[EXTRACT_MENU_TOOL])
+    # max_tokens alto: un menu reale puo' avere decine di voci, ognuna con
+    # nome/prezzo/ingredienti/descrizione/categoria - con il limite di
+    # default (1024) la risposta veniva troncata a meta' (stop_reason
+    # "max_tokens") e il tool_use risultava vuoto, senza errore esplicito.
+    response = await call_claude_with_tools(system_prompt, messages, tools=[EXTRACT_MENU_TOOL], max_tokens=8192)
+    if response.get("stop_reason") == "max_tokens":
+        raise ValueError("Il menu è troppo lungo per essere estratto in un colpo solo: prova a caricare meno pagine/foto per volta")
+
     content_blocks = response.get("content", [])
     tool_use = next((b for b in content_blocks if b.get("type") == "tool_use" and b.get("name") == "extract_menu_items"), None)
     if not tool_use:

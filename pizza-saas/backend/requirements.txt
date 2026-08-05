@@ -16,3 +16,5 @@ cryptography
 elevenlabs
 pypdf
 python-docx
+tzdata
+pywebpush

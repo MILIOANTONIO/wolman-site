@@ -15,6 +15,7 @@ RECORD_ORDER_TOOL = {
         "properties": {
             "order_type": {"type": "string", "enum": ["delivery", "pickup"]},
             "customer_name": {"type": "string"},
+            "delivery_address": {"type": "string", "description": "Indirizzo completo di consegna, richiesto solo se order_type è 'delivery'"},
             "items": {
                 "type": "array",
                 "items": {
@@ -22,7 +23,7 @@ RECORD_ORDER_TOOL = {
                     "properties": {
                         "name": {"type": "string", "description": "Nome esatto del piatto come in menu"},
                         "quantity": {"type": "integer"},
-                        "notes": {"type": "string"},
+                        "notes": {"type": "string", "description": "Personalizzazioni richieste dal cliente per QUESTO piatto, es. 'senza cipolla', 'aggiungi funghi', 'doppia mozzarella', 'poco piccante'. Lascia vuoto se il cliente non ha chiesto modifiche."},
                     },
                     "required": ["name", "quantity"],
                 },
@@ -32,14 +33,30 @@ RECORD_ORDER_TOOL = {
     },
 }
 
+RECORD_RESERVATION_TOOL = {
+    "name": "record_reservation",
+    "description": "Registra una prenotazione di un tavolo non appena hai raccolto tutte le informazioni necessarie (nome, numero di persone, data e ora).",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "customer_name": {"type": "string", "description": "Nome e cognome del cliente"},
+            "party_size": {"type": "integer", "description": "Numero di persone"},
+            "date": {"type": "string", "description": "Data della prenotazione in formato AAAA-MM-GG"},
+            "time": {"type": "string", "description": "Ora della prenotazione in formato HH:MM (24 ore)"},
+            "notes": {"type": "string", "description": "Eventuali richieste particolari"},
+        },
+        "required": ["customer_name", "party_size", "date", "time"],
+    },
+}
 
-async def call_claude_with_tools(system_prompt: str, messages: list[dict], tools: list[dict] | None = None) -> dict:
+
+async def call_claude_with_tools(system_prompt: str, messages: list[dict], tools: list[dict] | None = None, max_tokens: int = 1024) -> dict:
     if not ANTHROPIC_API_KEY:
         raise RuntimeError("ANTHROPIC_API_KEY non configurata sul server")
 
     payload = {
         "model": ANTHROPIC_MODEL,
-        "max_tokens": 1024,
+        "max_tokens": max_tokens,
         "system": system_prompt,
         "messages": messages,
     }
@@ -51,7 +68,14 @@ async def call_claude_with_tools(system_prompt: str, messages: list[dict], tools
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": ANTHROPIC_VERSION,
     }
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(ANTHROPIC_URL, json=payload, headers=headers)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if data.get("stop_reason") == "max_tokens":
+            # La risposta (incluso il tool_use JSON) e' stata troncata a
+            # meta': meglio segnalarlo chiaramente che restituire un
+            # risultato vuoto/incompleto senza spiegazione.
+            import sys
+            sys.stderr.write("Claude ha troncato la risposta per max_tokens - considera di alzare il limite per questa chiamata\n")
+        return data

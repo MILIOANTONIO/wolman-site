@@ -4,7 +4,9 @@ import { API_URL } from "./api";
 
 export type OrderEvent =
   | { type: "order_created"; order: Record<string, unknown> }
-  | { type: "order_status_changed"; order_id: string; status: string };
+  | { type: "order_status_changed"; order_id: string; status: string }
+  | { type: "order_assigned"; order_id: string; assigned_to_user_id: string }
+  | { type: "delivery_location_changed"; user_id: string; email: string; lat: number; lng: number };
 
 export function useOrdersSocket(tenantId: string | null, onEvent: (e: OrderEvent) => void) {
   const handlerRef = useRef(onEvent);

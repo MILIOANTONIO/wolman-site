@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
 
 type Transaction = {
   id: string; type: string; amount_cents: number; balance_after_cents: number;
@@ -47,18 +48,31 @@ export default function ConsumiPage() {
     }
   }
 
-  if (!billing) return <div className="page">{error ? <div className="error">{error}</div> : "Caricamento..."}</div>;
+  if (!billing) {
+    return (
+      <div className="page">
+        {error ? (
+          <div className="error">
+            {error}
+            <div style={{ marginTop: 12 }}>
+              <button onClick={reload}>Riprova</button>
+            </div>
+          </div>
+        ) : (
+          "Caricamento..."
+        )}
+      </div>
+    );
+  }
 
   const usagePct = billing.included_minutes > 0 ? Math.min(100, (billing.minutes_used / billing.included_minutes) * 100) : 0;
   const balanceLow = billing.prepaid_balance_cents < billing.plan_price_cents;
+  const balanceHistory = [...billing.transactions].reverse().map((t) => ({
+    date: t.created_at, balance: t.balance_after_cents / 100,
+  }));
 
   return (
-    <div className="page" style={{ maxWidth: 800 }}>
-      <nav>
-        <a href="/dashboard">Ordini</a>
-        <a href="/dashboard/consumi">Consumi</a>
-        <a href="/onboarding">Impostazioni</a>
-      </nav>
+    <div style={{ maxWidth: 800 }}>
       <h1>Consumi e fatturazione</h1>
       <p className="muted">Modello prepagato: ricarica il credito, canone e minuti extra si scalano automaticamente. Nessun addebito a sorpresa dopo l&apos;uso.</p>
       {error && <div className="error">{error}</div>}
@@ -94,23 +108,52 @@ export default function ConsumiPage() {
         )}
       </div>
 
+      {balanceHistory.length > 1 && (
+        <div className="chart-card">
+          <h2>Andamento saldo</h2>
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={balanceHistory} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+              <defs>
+                <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="date"
+                tickFormatter={(v) => new Date(v).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })}
+                stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false}
+              />
+              <YAxis stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} width={45} tickFormatter={(v) => `${v}€`} />
+              <Tooltip
+                formatter={(v) => [`${Number(v).toFixed(2)} €`, "Saldo"]}
+                labelFormatter={(v) => new Date(String(v)).toLocaleString("it-IT")}
+                contentStyle={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8 }}
+              />
+              <Area type="monotone" dataKey="balance" stroke="var(--accent)" strokeWidth={2} fill="url(#balanceGradient)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
       <div className="card">
         <h2>Movimenti</h2>
         {billing.transactions.length === 0 && <p className="muted">Nessun movimento ancora.</p>}
-        <table>
+        <table className="responsive-table">
           <thead>
             <tr><th>Data</th><th>Tipo</th><th>Importo</th><th>Saldo dopo</th><th>Descrizione</th></tr>
           </thead>
           <tbody>
             {billing.transactions.map((t) => (
               <tr key={t.id}>
-                <td>{new Date(t.created_at).toLocaleString("it-IT")}</td>
-                <td>{TX_LABELS[t.type] || t.type}</td>
-                <td style={{ color: t.amount_cents < 0 ? "var(--accent)" : "var(--success)" }}>
+                <td data-label="Data">{new Date(t.created_at).toLocaleString("it-IT")}</td>
+                <td data-label="Tipo">{TX_LABELS[t.type] || t.type}</td>
+                <td data-label="Importo" style={{ color: t.amount_cents < 0 ? "var(--accent)" : "var(--success)" }}>
                   {t.amount_cents >= 0 ? "+" : ""}{(t.amount_cents / 100).toFixed(2)} €
                 </td>
-                <td>{(t.balance_after_cents / 100).toFixed(2)} €</td>
-                <td className="muted">{t.description}</td>
+                <td data-label="Saldo dopo">{(t.balance_after_cents / 100).toFixed(2)} €</td>
+                <td data-label="Descrizione" className="muted">{t.description}</td>
               </tr>
             ))}
           </tbody>

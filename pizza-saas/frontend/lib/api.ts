@@ -1,12 +1,25 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// Messaggi di default in inglese che FastAPI/Starlette generano da soli
+// (non nostri HTTPException) quando una route non esiste, il metodo non è
+// permesso, ecc. - senza questa mappa passavano come se fossero un
+// messaggio "valido" (sono comunque una stringa in "detail") e apparivano
+// in inglese invece che tradotti.
+const GENERIC_DETAIL_TRANSLATIONS: Record<string, string> = {
+  "Not Found": "Endpoint non trovato (l'app potrebbe essere in fase di aggiornamento, riprova tra poco)",
+  "Method Not Allowed": "Operazione non permessa su questo indirizzo",
+  "Internal Server Error": "Errore interno del server",
+  "Unauthorized": "Non autorizzato",
+  "Forbidden": "Accesso negato",
+};
+
 // FastAPI restituisce "detail" come stringa per i nostri HTTPException, ma
 // come array di oggetti {msg, loc, ...} per gli errori di validazione Pydantic
 // automatici (422) - senza questa normalizzazione l'errore appariva come
 // "[object Object]" invece del messaggio vero.
 function extractErrorMessage(body: unknown, status: number): string {
   const detail = (body as { detail?: unknown } | null)?.detail;
-  if (typeof detail === "string") return detail;
+  if (typeof detail === "string") return GENERIC_DETAIL_TRANSLATIONS[detail] || detail;
   if (Array.isArray(detail)) {
     return detail.map((d) => (typeof d === "object" && d && "msg" in d ? String((d as { msg: unknown }).msg) : String(d))).join("; ");
   }

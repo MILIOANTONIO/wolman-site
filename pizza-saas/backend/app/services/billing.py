@@ -40,7 +40,14 @@ async def _record_transaction(db: AsyncSession, tenant: Tenant, *, type: str, am
 async def add_credit(db: AsyncSession, tenant: Tenant, amount_cents: int, description: str = "Ricarica") -> CreditTransaction:
     if amount_cents <= 0:
         raise ValueError("L'importo della ricarica deve essere positivo")
-    return await _record_transaction(db, tenant, type="topup", amount_cents=amount_cents, description=description)
+    tx = await _record_transaction(db, tenant, type="topup", amount_cents=amount_cents, description=description)
+
+    # Import qui (non in testa al file) per evitare un import circolare:
+    # billing_enforcement dipende gia' da questo modulo.
+    from app.services.billing_enforcement import reactivate_tenant_if_paid
+    await reactivate_tenant_if_paid(db, tenant)
+
+    return tx
 
 
 async def charge_plan_renewal(db: AsyncSession, tenant: Tenant) -> CreditTransaction:
