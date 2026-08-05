@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import ELEVENLABS_WEBHOOK_SECRET
+from app.config import ELEVENLABS_TOOL_SECRET
 from app.db import get_db
 from app.models import Order, Reservation, Tenant, TenantSettings
 from app.routers.ws import manager as ws_manager
@@ -40,7 +40,7 @@ class RecordOrderBody(BaseModel):
 
 
 def _check_tool_secret(x_tool_secret: str | None):
-    if not ELEVENLABS_WEBHOOK_SECRET or x_tool_secret != ELEVENLABS_WEBHOOK_SECRET:
+    if not ELEVENLABS_TOOL_SECRET or x_tool_secret != ELEVENLABS_TOOL_SECRET:
         raise HTTPException(status_code=401, detail="Non autorizzato")
 
 

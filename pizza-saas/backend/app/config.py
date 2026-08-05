@@ -65,6 +65,12 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 ELEVENLABS_API_KEY = _clean_env("ELEVENLABS_API_KEY")
 ELEVENLABS_WEBHOOK_SECRET = _clean_env("ELEVENLABS_WEBHOOK_SECRET")
+# Secret separato per l'header X-Tool-Secret che ElevenLabs manda sulle
+# chiamate ai nostri tool (record_order, check_delivery_distance, ecc.) -
+# e' il valore del segreto workspace "X-Tool-Secret" configurato lato
+# ElevenLabs, NON lo stesso di ELEVENLABS_WEBHOOK_SECRET (che firma solo il
+# webhook post-chiamata): sono due segreti indipendenti, ruotabili separatamente.
+ELEVENLABS_TOOL_SECRET = _clean_env("ELEVENLABS_TOOL_SECRET", ELEVENLABS_WEBHOOK_SECRET)
 # ID del tool "record_reservation" creato UNA VOLTA SOLA in ElevenLabs
 # (Conversational AI > Tools) e riusato da tutti gli agenti tramite
 # tool_ids - cosi' non serve piu' aggiungerlo a mano ad ogni agente.
