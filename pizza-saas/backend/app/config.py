@@ -38,7 +38,20 @@ def _clean_env(name, default=None):
     return value.strip()
 
 
-DATABASE_URL = _clean_env("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/pizza_saas")
+def _to_asyncpg_url(url: str) -> str:
+    # Render (e altri host) forniscono la connection string nella forma
+    # "postgres://..."/"postgresql://..." pensata per client sincroni
+    # (psycopg2) - il nostro engine e' async e usa asyncpg, quindi va
+    # riscritta o create_async_engine prova a importare psycopg2 (non
+    # installato) e va in crash all'avvio.
+    if url.startswith("postgres://"):
+        return "postgresql+asyncpg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
+
+
+DATABASE_URL = _to_asyncpg_url(_clean_env("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/pizza_saas"))
 
 SESSION_SECRET_KEY = _clean_env("SESSION_SECRET_KEY", "dev-only-insecure-secret-change-me")
 
