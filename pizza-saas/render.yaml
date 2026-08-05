@@ -71,4 +71,4 @@ services:
 
 databases:
   - name: pizza-saas-db
-    plan: starter
+    plan: basic-1gb
