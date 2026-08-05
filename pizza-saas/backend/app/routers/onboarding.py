@@ -85,6 +85,7 @@ async def get_tenant_info(user: User = Depends(get_current_owner), db: AsyncSess
         "agent_voice_id": settings_row.agent_voice_id, "confirm_call_enabled": settings_row.confirm_call_enabled,
         "business_hours": settings_row.business_hours or {},
         "delivery_radius_km": settings_row.delivery_radius_km, "delivery_notes": settings_row.delivery_notes,
+        "delivery_fee_cents": settings_row.delivery_fee_cents,
         "delivery_enabled": settings_row.delivery_enabled, "pickup_enabled": settings_row.pickup_enabled,
         "table_reservations_enabled": settings_row.table_reservations_enabled,
         "table_capacity": settings_row.table_capacity or {},
@@ -108,14 +109,18 @@ async def update_business_info(body: BusinessInfoBody, user: User = Depends(get_
 class DeliveryZoneBody(BaseModel):
     delivery_radius_km: float | None = None
     delivery_notes: str | None = None
+    delivery_fee_cents: int = 0
 
 
 @router.put("/delivery-zone")
 async def update_delivery_zone(body: DeliveryZoneBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    if body.delivery_fee_cents < 0:
+        raise HTTPException(status_code=400, detail="Il costo di consegna non può essere negativo")
     tenant = await _require_tenant(db, user)
     settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant.id))).scalar_one()
     settings_row.delivery_radius_km = body.delivery_radius_km
     settings_row.delivery_notes = body.delivery_notes
+    settings_row.delivery_fee_cents = body.delivery_fee_cents
     await db.commit()
     pushed = await _sync_agent(db, tenant)
     return {"ok": True, "pushed_to_elevenlabs": pushed}

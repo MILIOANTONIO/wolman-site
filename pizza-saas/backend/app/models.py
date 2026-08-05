@@ -164,6 +164,9 @@ class TenantSettings(Base):
     # il ponte" o elenco di quartieri/CAP specifici).
     delivery_radius_km: Mapped[float | None] = mapped_column(nullable=True)
     delivery_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Costo di consegna addebitato al cliente sugli ordini delivery (0 =
+    # consegna gratuita). Alcuni locali lo fanno pagare, altri no.
+    delivery_fee_cents: Mapped[int] = mapped_column(Integer, default=0)
     # Interruttori servizi: quali capacità offrire ai clienti tramite
     # l'agente AI (voce/WhatsApp) - condizionano sia il prompt generato sia
     # cosa può fare l'agente durante l'ordine/prenotazione.
@@ -416,6 +419,9 @@ class Order(Base):
     # se la promozione viene poi modificata o cancellata dal titolare.
     discount_cents: Mapped[int] = mapped_column(Integer, default=0)
     applied_promotion_title: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # Snapshot del costo di consegna al momento dell'ordine (0 per asporto o
+    # se il locale non lo addebita) - stesso motivo dello snapshot sconto sopra.
+    delivery_fee_cents: Mapped[int] = mapped_column(Integer, default=0)
     # ricevuto -> in_forno -> pronta / in_consegna -> consegnata (oppure annullato)
     status: Mapped[str] = mapped_column(String(32), default="ricevuto", index=True)
     # Solo per order_type="delivery": indirizzo raccolto dall'AI e sua

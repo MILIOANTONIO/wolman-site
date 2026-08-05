@@ -35,10 +35,12 @@ IMPORTANTE: appena il cliente ti dice cosa vuole ordinare (o comunque entro i pr
 {% endif %}
 
 {% set ordering_enabled = settings.delivery_enabled or settings.pickup_enabled %}
-{% if settings.delivery_enabled and (settings.delivery_radius_km or settings.delivery_notes) %}
+{% if settings.delivery_enabled and (settings.delivery_radius_km or settings.delivery_notes or settings.delivery_fee_cents) %}
 ZONA DI CONSEGNA (delivery):
 {% if settings.delivery_radius_km %}- Consegniamo entro circa {{ settings.delivery_radius_km }} km dal locale{% if tenant.address %} ({{ tenant.address }}{% if tenant.city %}, {{ tenant.city }}{% endif %}){% endif %}.{% endif %}
-{% if settings.delivery_notes %}- Note: {{ settings.delivery_notes }}{% endif %}
+{% if settings.delivery_fee_cents %}- Il servizio di consegna a domicilio ha un costo di {{ "%.2f"|format(settings.delivery_fee_cents / 100) }} euro, aggiunto automaticamente al totale (non fare mai tu il calcolo) - comunicalo al cliente quando conferma un ordine delivery.
+{% else %}- La consegna a domicilio è gratuita.
+{% endif %}{% if settings.delivery_notes %}- Note: {{ settings.delivery_notes }}{% endif %}
 {% if settings.pickup_enabled %}Se l'indirizzo del cliente sembra chiaramente fuori zona, avvisalo prima di confermare l'ordine e proponi l'asporto come alternativa.
 {% else %}Se l'indirizzo del cliente sembra chiaramente fuori zona, avvisalo che non puoi consegnare li' - non offrire l'asporto come alternativa, non e' un servizio attivo.
 {% endif %}{% endif %}

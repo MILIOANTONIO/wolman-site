@@ -50,6 +50,7 @@ export default function ConfigurazionePage() {
 
   const [deliveryRadius, setDeliveryRadius] = useState("");
   const [deliveryNotes, setDeliveryNotes] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState("");
   const [savingDelivery, setSavingDelivery] = useState(false);
   const [deliveryStatus, setDeliveryStatus] = useState<Status>(null);
 
@@ -92,6 +93,7 @@ export default function ConfigurazionePage() {
       setHours(hoursText);
       setDeliveryRadius(t.delivery_radius_km != null ? String(t.delivery_radius_km) : "");
       setDeliveryNotes(t.delivery_notes || "");
+      setDeliveryFee(t.delivery_fee_cents ? String(t.delivery_fee_cents / 100) : "");
       setDeliveryEnabled(t.delivery_enabled ?? true);
       setPickupEnabled(t.pickup_enabled ?? true);
       setTableReservationsEnabled(t.table_reservations_enabled ?? false);
@@ -169,7 +171,12 @@ export default function ConfigurazionePage() {
     setDeliveryStatus(null);
     try {
       const radius = deliveryRadius.trim() ? parseFloat(deliveryRadius.replace(",", ".")) : null;
-      await api.put("/api/onboarding/delivery-zone", { delivery_radius_km: radius, delivery_notes: deliveryNotes || null });
+      const feeEuro = deliveryFee.trim() ? parseFloat(deliveryFee.replace(",", ".")) : 0;
+      await api.put("/api/onboarding/delivery-zone", {
+        delivery_radius_km: radius,
+        delivery_notes: deliveryNotes || null,
+        delivery_fee_cents: Math.round(feeEuro * 100),
+      });
       setDeliveryStatus({ type: "ok", text: "Zona di consegna salvata" });
     } catch (err) {
       setDeliveryStatus({ type: "error", text: err instanceof Error ? err.message : "Errore" });
@@ -462,6 +469,8 @@ export default function ConfigurazionePage() {
           <p className="muted">Raggio approssimativo entro cui consegnate a domicilio, calcolato dall&apos;indirizzo del locale. L&apos;agente AI lo userà per avvisare i clienti fuori zona.</p>
           <label>Raggio di consegna (km)</label>
           <input value={deliveryRadius} placeholder="es. 5" onChange={(e) => setDeliveryRadius(e.target.value)} />
+          <label>Costo di consegna (€)</label>
+          <input value={deliveryFee} placeholder="es. 2.50 - lascia vuoto per consegna gratuita" onChange={(e) => setDeliveryFee(e.target.value)} />
           <label>Note (opzionale)</label>
           <textarea rows={3} placeholder="es. non consegniamo oltre il ponte, o elenco quartieri/CAP" value={deliveryNotes} onChange={(e) => setDeliveryNotes(e.target.value)} />
           <div style={{ display: "flex", alignItems: "center", marginTop: 16 }}>

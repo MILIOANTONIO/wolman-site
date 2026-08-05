@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Offering, Order, OrderItem, OrderStatusHistory, Promotion, Reservation, Tenant, User
+from app.models import Offering, Order, OrderItem, OrderStatusHistory, Promotion, Reservation, Tenant, TenantSettings, User
 from app.routers.ws import manager as ws_manager
 
 VALID_TRANSITIONS = {
@@ -182,9 +182,15 @@ async def create_order(
     )
     discount_cents = best_promo[1] if best_promo else 0
 
-    order.total_cents = max(0, total_cents - discount_cents)
+    delivery_fee_cents = 0
+    if order_type == "delivery":
+        settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant_id))).scalar_one_or_none()
+        delivery_fee_cents = settings_row.delivery_fee_cents if settings_row else 0
+
+    order.total_cents = max(0, total_cents - discount_cents) + delivery_fee_cents
     order.discount_cents = discount_cents
     order.applied_promotion_title = best_promo[0].title if best_promo else None
+    order.delivery_fee_cents = delivery_fee_cents
     db.add(OrderStatusHistory(order_id=order.id, status="ricevuto", changed_by=channel))
     await db.commit()
     await db.refresh(order)
@@ -201,6 +207,7 @@ async def create_order(
             "total_cents": order.total_cents,
             "discount_cents": order.discount_cents,
             "applied_promotion_title": order.applied_promotion_title,
+            "delivery_fee_cents": order.delivery_fee_cents,
         },
     })
 
