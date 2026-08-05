@@ -52,6 +52,13 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 ELEVENLABS_API_KEY = _clean_env("ELEVENLABS_API_KEY")
 ELEVENLABS_WEBHOOK_SECRET = _clean_env("ELEVENLABS_WEBHOOK_SECRET")
+# ID del tool "record_reservation" creato UNA VOLTA SOLA in ElevenLabs
+# (Conversational AI > Tools) e riusato da tutti gli agenti tramite
+# tool_ids - cosi' non serve piu' aggiungerlo a mano ad ogni agente.
+ELEVENLABS_RESERVATION_TOOL_ID = _clean_env("ELEVENLABS_RESERVATION_TOOL_ID")
+# ID del tool "record_order" - stesso principio del tool di prenotazione sopra,
+# ma per la registrazione ordini durante la chiamata/widget.
+ELEVENLABS_ORDER_TOOL_ID = _clean_env("ELEVENLABS_ORDER_TOOL_ID")
 
 RESEND_API_KEY = _clean_env("RESEND_API_KEY")
 RESEND_URL = "https://api.resend.com/emails"
@@ -68,3 +75,19 @@ DIDWW_BASE_URL = (
 )
 
 FRONTEND_URL = _clean_env("FRONTEND_URL", "http://localhost:3000")
+
+# Per la geocodifica server-side dell'indirizzo di consegna (assegnazione
+# fattorini per vicinanza + percorso). Deve avere "Geocoding API" abilitata
+# nel progetto Google Cloud - una chiave con solo restrizione HTTP referrer
+# (come quella usata dal frontend per Places/Maps JS) NON funziona qui,
+# perche' le chiamate server non hanno un referrer da controllare.
+GOOGLE_MAPS_API_KEY = _clean_env("GOOGLE_MAPS_API_KEY")
+
+# Notifiche push (Web Push/VAPID). Chiave privata in formato RAW
+# base64url (32 byte, NON PEM: la funzione webpush() della libreria
+# pywebpush chiama internamente Vapid.from_string(), che si aspetta proprio
+# questo formato e non un PEM completo, altrimenti fallisce a deserializzare
+# la chiave con un errore di parsing ASN.1).
+VAPID_PRIVATE_KEY_RAW = _clean_env("VAPID_PRIVATE_KEY_RAW_B64URL")
+VAPID_PUBLIC_KEY = _clean_env("VAPID_PUBLIC_KEY")
+VAPID_CONTACT_EMAIL = _clean_env("VAPID_CONTACT_EMAIL", "admin@example.com")

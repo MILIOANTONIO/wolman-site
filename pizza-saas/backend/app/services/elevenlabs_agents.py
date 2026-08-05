@@ -14,7 +14,7 @@ import sys
 
 import httpx
 
-from app.config import ELEVENLABS_API_KEY
+from app.config import ELEVENLABS_API_KEY, ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID
 from app.services.claude_client import call_claude_with_tools
 
 BASE_URL = "https://api.elevenlabs.io/v1/convai/agents"
@@ -25,12 +25,29 @@ def _headers():
 
 
 def _agent_payload(*, name: str, prompt: str, first_message: str, voice_id: str | None, language: str = "it"):
-    tts = {"voice_id": voice_id} if voice_id else {}
+    # ElevenLabs richiede il modello "turbo" o "flash v2_5" per gli agenti in
+    # lingua non inglese (scoperto il 2026-08-05: la creazione falliva con
+    # "Non-english Agents must use turbo or flash v2_5" senza model_id
+    # esplicito) - flash v2_5 e' quello a latenza piu' bassa, adatto a una
+    # telefonata dove ogni secondo di attesa si sente.
+    tts: dict = {"model_id": "eleven_flash_v2_5"}
+    if voice_id:
+        tts["voice_id"] = voice_id
+    prompt_config: dict = {"prompt": prompt}
+    # "record_order" e "record_reservation" sono condivisi da tutti gli
+    # agenti (creati una volta sola su ElevenLabs, vedi ELEVENLABS_ORDER_TOOL_ID
+    # / ELEVENLABS_RESERVATION_TOOL_ID): collegarli qui evita di doverli
+    # aggiungere a mano ad ogni pizzeria. Se il tenant non ha le prenotazioni
+    # attive il prompt semplicemente non menziona record_reservation, quindi
+    # l'agente non lo usa comunque anche se e' tecnicamente disponibile.
+    tool_ids = [t for t in (ELEVENLABS_ORDER_TOOL_ID, ELEVENLABS_RESERVATION_TOOL_ID) if t]
+    if tool_ids:
+        prompt_config["tool_ids"] = tool_ids
     return {
         "name": name,
         "conversation_config": {
             "agent": {
-                "prompt": {"prompt": prompt},
+                "prompt": prompt_config,
                 "first_message": first_message,
                 "language": language,
             },
@@ -62,6 +79,58 @@ async def update_agent(agent_id: str, *, name: str, prompt: str, first_message: 
         resp = await client.patch(f"{BASE_URL}/{agent_id}", json=payload, headers=_headers())
         if resp.status_code >= 400:
             sys.stderr.write(f"ElevenLabs update_agent error {resp.status_code}: {resp.text}\n")
+            resp.raise_for_status()
+
+
+# Numeri DIDWW -> ElevenLabs: stesso schema gia' funzionante sui numeri reali
+# collegati a mano in precedenza (verificato leggendo /v1/convai/phone-numbers
+# sull'account) - "allowed_addresses": ["0.0.0.0/0"] e nessuna credenziale,
+# perche' DIDWW instrada le chiamate senza autenticazione SIP lato trunk in
+# entrata. Niente outbound_trunk_config: questi numeri ricevono soltanto.
+PHONE_NUMBERS_URL = "https://api.elevenlabs.io/v1/convai/phone-numbers"
+
+
+async def import_phone_number(*, e164_number: str, label: str, agent_id: str | None = None) -> str:
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY non configurata sul server")
+
+    payload = {
+        "phone_number": e164_number,
+        "label": label,
+        "provider": "sip_trunk",
+        "agent_id": agent_id,
+        "inbound_trunk_config": {"allowed_addresses": ["0.0.0.0/0"], "media_encryption": "allowed"},
+    }
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(PHONE_NUMBERS_URL, json=payload, headers=_headers())
+        if resp.status_code >= 400:
+            sys.stderr.write(f"ElevenLabs import_phone_number error {resp.status_code}: {resp.text}\n")
+            resp.raise_for_status()
+        return resp.json()["phone_number_id"]
+
+
+async def assign_phone_number(phone_number_id: str, agent_id: str | None) -> None:
+    """agent_id=None sospende il numero (ElevenLabs smette di instradarlo a
+    qualunque agente) senza doverlo re-importare - usato per la sospensione/
+    riattivazione per mancato pagamento, vedi services/billing_enforcement.py."""
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY non configurata sul server")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.patch(f"{PHONE_NUMBERS_URL}/{phone_number_id}", json={"agent_id": agent_id}, headers=_headers())
+        if resp.status_code >= 400:
+            sys.stderr.write(f"ElevenLabs assign_phone_number error {resp.status_code}: {resp.text}\n")
+            resp.raise_for_status()
+
+
+async def delete_phone_number(phone_number_id: str) -> None:
+    if not ELEVENLABS_API_KEY:
+        raise RuntimeError("ELEVENLABS_API_KEY non configurata sul server")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(f"{PHONE_NUMBERS_URL}/{phone_number_id}", headers=_headers())
+        if resp.status_code >= 400:
+            sys.stderr.write(f"ElevenLabs delete_phone_number error {resp.status_code}: {resp.text}\n")
             resp.raise_for_status()
 
 

@@ -61,6 +61,10 @@ services:
         sync: false
       - key: ELEVENLABS_WEBHOOK_SECRET
         sync: false
+      - key: ELEVENLABS_RESERVATION_TOOL_ID
+        sync: false
+      - key: ELEVENLABS_ORDER_TOOL_ID
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_FROM
