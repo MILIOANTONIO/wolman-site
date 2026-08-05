@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { api } from "@/lib/api";
 import { useMe } from "@/lib/useMe";
 import { ThemeToggle } from "@/lib/ThemeToggle";
 import { usePushNotifications } from "@/lib/usePushNotifications";
@@ -62,6 +63,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return <div className="page">Verifica accesso...</div>;
   }
 
+  async function logout() {
+    await api.post("/api/auth/logout");
+    window.location.href = "/login";
+  }
+
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
@@ -71,8 +77,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             {link.label}
           </Link>
         ))}
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
           <ThemeToggle />
+          <button onClick={logout} className="secondary">Esci</button>
         </div>
       </aside>
       <main className="admin-main">{children}</main>

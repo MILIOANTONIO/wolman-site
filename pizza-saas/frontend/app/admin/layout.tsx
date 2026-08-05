@@ -46,8 +46,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {link.label}
           </Link>
         ))}
-        <div style={{ marginTop: 16 }}>
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
           <ThemeToggle />
+          <button
+            className="secondary"
+            onClick={async () => {
+              await api.post("/api/auth/logout");
+              window.location.href = "/admin";
+            }}
+          >
+            Esci
+          </button>
         </div>
       </aside>
       <main className="admin-main">{children}</main>
