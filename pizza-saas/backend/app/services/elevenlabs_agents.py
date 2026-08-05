@@ -54,6 +54,26 @@ def _agent_payload(*, name: str, prompt: str, first_message: str, voice_id: str 
     ) if t]
     if tool_ids:
         prompt_config["tool_ids"] = tool_ids
+    # Senza questo l'agente non riattacca mai da solo a fine chiamata (es.
+    # dopo aver detto "grazie e buona giornata" nella richiamata di conferma):
+    # la linea resta aperta finche' non chiude l'altro capo.
+    prompt_config["built_in_tools"] = {
+        "end_call": {
+            "type": "system",
+            "name": "end_call",
+            "description": "",
+            "response_timeout_secs": 20,
+            "disable_interruptions": False,
+            "interruption_mode": "allow",
+            "force_pre_tool_speech": False,
+            "pre_tool_speech": "auto",
+            "assignments": [],
+            "tool_call_sound": None,
+            "tool_call_sound_behavior": "auto",
+            "tool_error_handling_mode": "auto",
+            "params": {"system_tool_type": "end_call"},
+        }
+    }
     return {
         "name": name,
         "conversation_config": {

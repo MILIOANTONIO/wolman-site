@@ -17,6 +17,7 @@ from app.routers.ws import manager as ws_manager
 from app.services.elevenlabs_agents import create_agent, get_outbound_call_status, place_outbound_call, update_agent
 from app.services.orders import (
     OrderError,
+    _order_items_summary,
     claim_available_orders,
     trigger_order_confirmation_call,
     update_order_status,
@@ -103,8 +104,13 @@ async def call_order_customer(order_id: uuid.UUID, user: User = Depends(get_curr
     if not tenant.elevenlabs_agent_id:
         raise HTTPException(status_code=400, detail="Nessun agente vocale collegato a questa pizzeria")
 
+    items_summary = await _order_items_summary(db, order.id)
+    first_message = (
+        f"Buongiorno, la chiamo da {tenant.business_name} per avvisarla che siamo spiacenti ma il suo ordine "
+        f"({items_summary}) e' stato annullato. Ci scusiamo per il disagio."
+    )
     try:
-        result = await place_outbound_call(agent_id=tenant.elevenlabs_agent_id, to_number=order.customer_phone)
+        result = await place_outbound_call(agent_id=tenant.elevenlabs_agent_id, to_number=order.customer_phone, first_message=first_message)
     except Exception as e:
         sys.stderr.write(f"call_order_customer error per ordine {order_id}: {e}\n")
         raise HTTPException(status_code=502, detail="Chiamata non riuscita - riprova o chiama il cliente direttamente")
@@ -145,10 +151,23 @@ async def get_order_confirmation_status(order_id: uuid.UUID, user: User = Depend
     if not order.confirmation_conversation_id or order.confirmation_status not in ("in_corso",):
         return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
 
+    # Catturiamo l'id della conversazione interrogata: se nel frattempo (la
+    # chiamata a ElevenLabs sotto puo' metterci diversi secondi) e' partito
+    # un nuovo tentativo - es. l'utente ha premuto "Richiama" - non dobbiamo
+    # sovrascrivere lo stato piu' recente con l'esito di una conversazione
+    # ormai superata.
+    queried_conversation_id = order.confirmation_conversation_id
+
     try:
-        call = await get_outbound_call_status(order.confirmation_conversation_id)
+        call = await get_outbound_call_status(queried_conversation_id)
     except Exception as e:
         sys.stderr.write(f"get_order_confirmation_status error per ordine {order_id}: {e}\n")
+        return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
+
+    await db.refresh(order)
+    if order.confirmation_conversation_id != queried_conversation_id:
+        # Superato da un tentativo piu' recente: ignoriamo questo esito e
+        # ritorniamo lo stato attuale, non quello (stantio) appena letto.
         return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
 
     if call["failed"]:

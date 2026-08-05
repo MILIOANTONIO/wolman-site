@@ -72,7 +72,8 @@ export default function DashboardPage() {
   const [onDuty, setOnDuty] = useState(false);
   const [dutyLoading, setDutyLoading] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
-  const [justCancelled, setJustCancelled] = useState<{ orderNumber: string; customerName: string | null; phone: string | null } | null>(null);
+  const [justCancelled, setJustCancelled] = useState<{ orderId: string; orderNumber: string; customerName: string | null; phone: string | null } | null>(null);
+  const [cancelCallState, setCancelCallState] = useState<"idle" | "calling" | "failed">("idle");
   const [callStatusText, setCallStatusText] = useState<Record<string, string>>({});
   const locationStatus = useDeliveryLocationSharing(me?.role === "delivery" && onDuty);
 
@@ -119,7 +120,21 @@ export default function DashboardPage() {
   async function confirmCancel(order: Order) {
     setConfirmCancelId(null);
     await changeStatus(order.id, "annullato");
-    setJustCancelled({ orderNumber: order.order_number, customerName: order.customer_name, phone: order.customer_phone });
+    setCancelCallState("idle");
+    setJustCancelled({ orderId: order.id, orderNumber: order.order_number, customerName: order.customer_name, phone: order.customer_phone });
+    callCancelledCustomer(order.id);
+  }
+
+  async function callCancelledCustomer(orderId: string) {
+    setCancelCallState("calling");
+    try {
+      await api.post(`/api/dashboard/orders/${orderId}/call-customer`);
+      setCancelCallState("idle");
+    } catch {
+      // stessa logica dell'altra chiamata AI: se non riesce a raggiungere il
+      // cliente, offriamo il fallback manuale (tel:) invece di ritentare da soli
+      setCancelCallState("failed");
+    }
   }
 
   async function pollConfirmationStatus(orderId: string, attempt = 0) {
@@ -186,10 +201,19 @@ export default function DashboardPage() {
         <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, borderColor: "var(--accent)" }}>
           <div>
             <strong>Ordine #{justCancelled.orderNumber} annullato</strong>
-            <div className="muted">Avvisa {justCancelled.customerName || "il cliente"} del motivo prima che arrivi in negozio o si aspetti la consegna.</div>
+            <div className="muted">
+              {cancelCallState === "calling" && `📞 Chiamata di avviso in corso verso ${justCancelled.customerName || "il cliente"}...`}
+              {cancelCallState === "failed" && "❌ Non siamo riusciti a raggiungere il cliente: avvisalo tu del motivo prima che arrivi in negozio o si aspetti la consegna."}
+              {cancelCallState === "idle" && `${justCancelled.customerName || "Il cliente"} e' stato avvisato dell'annullamento.`}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            {justCancelled.phone && <a href={`tel:${justCancelled.phone}`}><button type="button">📞 Chiama cliente</button></a>}
+            {cancelCallState === "failed" && (
+              <>
+                <button type="button" onClick={() => callCancelledCustomer(justCancelled.orderId)}>Richiama</button>
+                {justCancelled.phone && <a href={`tel:${justCancelled.phone}`}><button type="button" className="secondary">Chiama tu il cliente</button></a>}
+              </>
+            )}
             <button type="button" className="secondary" onClick={() => setJustCancelled(null)}>Chiudi</button>
           </div>
         </div>
