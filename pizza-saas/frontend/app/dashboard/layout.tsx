@@ -9,6 +9,7 @@ import { usePushNotifications } from "@/lib/usePushNotifications";
 import { useHeartbeat } from "@/lib/useHeartbeat";
 import { useOrdersSocket } from "@/lib/useOrdersSocket";
 import { InstallAppButton } from "@/lib/InstallAppButton";
+import { useAppUpdate } from "@/lib/useAppUpdate";
 
 // Eventi WebSocket che fanno comparire un pallino sulla voce di menu
 // corrispondente - si azzera quando l'utente apre quella pagina. Vale solo
@@ -50,6 +51,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const links = me ? LINKS_BY_ROLE[me.role] || LINKS_BY_ROLE.owner : OWNER_LINKS;
   const allowedHrefs = links.map((l) => l.href);
 
+  useAppUpdate();
   usePushNotifications(!!me);
   useHeartbeat(!!me);
 
