@@ -52,7 +52,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const allowedHrefs = links.map((l) => l.href);
 
   useAppUpdate();
-  usePushNotifications(!!me);
+  const pushStatus = usePushNotifications(!!me);
   useHeartbeat(!!me);
 
   const [badges, setBadges] = useState<Record<string, number>>({});
@@ -124,7 +124,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <button onClick={logout} className="secondary">Esci</button>
         </div>
       </aside>
-      <main className="admin-main">{children}</main>
+      <main className="admin-main">
+        {pushStatus === "denied" && (
+          <div className="card" style={{ marginBottom: 16, borderColor: "var(--accent)" }}>
+            <strong>⚠️ Notifiche disattivate</strong>
+            <div className="muted" style={{ marginTop: 4 }}>
+              Senza notifiche attive non saprai quando arriva un nuovo ordine mentre l'app è chiusa. Il browser non richiede il permesso una seconda volta dopo averlo negato: va riattivato a mano.
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              <strong>Su Windows (app installata):</strong> tasto destro sull'icona nella barra delle applicazioni → Gestisci → Notifiche → attiva. Oppure Impostazioni di Windows → App → Pizza SaaS → Notifiche.<br />
+              <strong>In Chrome/Edge (browser):</strong> clicca il lucchetto 🔒 accanto all'indirizzo del sito → Notifiche → Consenti.<br />
+              <strong>Su Android/iPhone:</strong> Impostazioni del telefono → App → Pizza SaaS (o il browser usato) → Notifiche → attiva.
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>Dopo averle riattivate, ricarica questa pagina.</div>
+          </div>
+        )}
+        {children}
+      </main>
     </div>
   );
 }
