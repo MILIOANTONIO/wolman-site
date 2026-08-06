@@ -159,9 +159,33 @@ def _to_e164_it(raw: str) -> str:
         return "+" + digits[2:]
     if digits.startswith("39") and len(digits) >= 11:
         return "+" + digits
-    if digits.startswith("0"):
-        digits = digits[1:]
+    # A differenza della maggior parte dei paesi, in Italia lo "0" iniziale
+    # dei fissi fa parte del numero e va mantenuto anche in formato
+    # internazionale (es. 090 9488521 -> +39 090 9488521, non +39 90 9488521)
+    # - i mobili invece non iniziano mai con 0, quindi non serve rimuoverlo.
     return "+39" + digits
+
+
+# Consentiamo SOLO fisso e mobile italiano: qualunque numerazione speciale/a
+# sovrapprezzo italiana (899, 166, 144, 892/894/895, 199, 187, 178, 848...)
+# non inizia ne' con 0 ne' con 3 dopo il prefisso +39, quindi resta esclusa
+# automaticamente da questa allowlist - cosi' come qualunque numero estero
+# (prefisso diverso da +39). Evita che un cliente in malafede faccia
+# richiamare a pagamento un numero a tariffazione maggiorata o internazionale
+# a spese della pizzeria.
+_IT_MOBILE_RE = re.compile(r"^\+393\d{8,9}$")
+_IT_LANDLINE_RE = re.compile(r"^\+390\d{6,10}$")
+
+
+class DisallowedCallTargetError(Exception):
+    pass
+
+
+def _assert_callable_it_number(e164: str) -> None:
+    if not (_IT_MOBILE_RE.match(e164) or _IT_LANDLINE_RE.match(e164)):
+        raise DisallowedCallTargetError(
+            f"Numero non consentito per la chiamata in uscita (solo fisso/mobile italiano): {e164}"
+        )
 
 
 async def place_outbound_call(
@@ -179,10 +203,13 @@ async def place_outbound_call(
     if not ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID:
         raise RuntimeError("ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID non configurata sul server")
 
+    to_number_e164 = _to_e164_it(to_number)
+    _assert_callable_it_number(to_number_e164)
+
     payload: dict = {
         "agent_id": agent_id,
         "agent_phone_number_id": ELEVENLABS_OUTBOUND_PHONE_NUMBER_ID,
-        "to_number": _to_e164_it(to_number),
+        "to_number": to_number_e164,
     }
     client_data: dict = {}
     if first_message:
