@@ -18,14 +18,42 @@ export function useOrdersSocket(tenantId: string | null, onEvent: (e: OrderEvent
   useEffect(() => {
     if (!tenantId) return;
     const wsUrl = API_URL.replace(/^http/, "ws") + `/ws/tenant/${tenantId}/orders`;
-    const socket = new WebSocket(wsUrl);
-    socket.onmessage = (event) => {
-      try {
-        handlerRef.current(JSON.parse(event.data));
-      } catch {
-        // messaggio non JSON, ignorato
-      }
+
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let attempt = 0;
+    let stopped = false;
+
+    function connect() {
+      socket = new WebSocket(wsUrl);
+      socket.onopen = () => { attempt = 0; };
+      socket.onmessage = (event) => {
+        try {
+          handlerRef.current(JSON.parse(event.data));
+        } catch {
+          // messaggio non JSON, ignorato
+        }
+      };
+      // Senza riconnessione, una caduta della connessione (es. redeploy del
+      // backend, rete instabile) lascia l'app silenziosamente senza nuovi
+      // ordini/notifiche finche' non si ricarica la pagina a mano.
+      socket.onclose = () => {
+        if (stopped) return;
+        const delay = Math.min(1000 * 2 ** attempt, 15000);
+        attempt += 1;
+        reconnectTimer = setTimeout(connect, delay);
+      };
+    }
+
+    connect();
+    const onOnline = () => { if (socket?.readyState !== WebSocket.OPEN) { attempt = 0; connect(); } };
+    window.addEventListener("online", onOnline);
+
+    return () => {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      window.removeEventListener("online", onOnline);
+      socket?.close();
     };
-    return () => socket.close();
   }, [tenantId]);
 }
