@@ -2,11 +2,11 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, Legend,
 } from "recharts";
 
-type DailyPoint = { date: string; orders: number; revenue_cents: number };
+type DailyPoint = { date: string; orders: number; revenue_cents: number; verified: number; completed: number; cancelled: number };
 
 type Stats = {
   total_orders: number;
@@ -74,6 +74,28 @@ function ChartTooltip({ active, payload, label, money }: { active?: boolean; pay
     <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: "0.85rem" }}>
       <div className="muted">{label ? fmtDay(label) : ""}</div>
       <div style={{ fontWeight: 700 }}>{money ? `${(value / 100).toFixed(2)} €` : value}</div>
+    </div>
+  );
+}
+
+const ORDER_SERIES: { key: keyof DailyPoint; label: string; color: string }[] = [
+  { key: "orders", label: "Ricevuti", color: "var(--accent)" },
+  { key: "verified", label: "Verificati", color: "var(--info)" },
+  { key: "completed", label: "Completati", color: "var(--success)" },
+  { key: "cancelled", label: "Annullati", color: "#e5484d" },
+];
+
+function MultiLineTooltip({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string; color: string }[]; label?: string }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", borderRadius: 8, padding: "6px 10px", fontSize: "0.85rem" }}>
+      <div className="muted">{label ? fmtDay(label) : ""}</div>
+      {payload.map((p) => (
+        <div key={p.name} style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 999, background: p.color, display: "inline-block" }} />
+          {p.name}: {p.value}
+        </div>
+      ))}
     </div>
   );
 }
@@ -184,20 +206,17 @@ export default function StatistichePage() {
 
       <div className="chart-card">
         <h2>Ordini per giorno (ultimi 14 giorni)</h2>
-        <ResponsiveContainer width="100%" height={220}>
-          <AreaChart data={stats.daily_last_14_days} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-            <defs>
-              <linearGradient id="ordersGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.4} />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
-              </linearGradient>
-            </defs>
+        <ResponsiveContainer width="100%" height={240}>
+          <LineChart data={stats.daily_last_14_days} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis dataKey="date" tickFormatter={fmtDay} stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} />
             <YAxis allowDecimals={false} stroke="var(--muted)" fontSize={12} tickLine={false} axisLine={false} width={30} />
-            <Tooltip content={<ChartTooltip />} />
-            <Area type="monotone" dataKey="orders" stroke="var(--accent)" strokeWidth={2} fill="url(#ordersGradient)" />
-          </AreaChart>
+            <Tooltip content={<MultiLineTooltip />} />
+            <Legend />
+            {ORDER_SERIES.map((s) => (
+              <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={s.color} strokeWidth={2} dot={false} />
+            ))}
+          </LineChart>
         </ResponsiveContainer>
       </div>
 

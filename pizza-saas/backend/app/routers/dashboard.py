@@ -311,18 +311,34 @@ async def get_owner_stats(user: User = Depends(get_current_owner), db: AsyncSess
     day = func.date(Order.created_at)
     daily_rows = (
         await db.execute(
-            select(day.label("day"), func.count().label("orders"), func.coalesce(func.sum(Order.total_cents), 0).label("revenue_cents"))
+            select(
+                day.label("day"),
+                func.count().label("orders"),
+                func.coalesce(func.sum(Order.total_cents), 0).label("revenue_cents"),
+                func.count().filter(Order.confirmation_status == "confermato").label("verified"),
+                func.count().filter(Order.status == "consegnata").label("completed"),
+                func.count().filter(Order.status == "annullato").label("cancelled"),
+            )
             .where(Order.tenant_id == user.tenant_id, Order.created_at >= since)
             .group_by(day)
             .order_by(day)
         )
     ).all()
-    daily_by_date = {str(row.day): {"orders": row.orders, "revenue_cents": row.revenue_cents} for row in daily_rows}
+    daily_by_date = {
+        str(row.day): {
+            "orders": row.orders, "revenue_cents": row.revenue_cents,
+            "verified": row.verified, "completed": row.completed, "cancelled": row.cancelled,
+        }
+        for row in daily_rows
+    }
     daily_series = []
     for i in range(14):
         d = (since + datetime.timedelta(days=i)).date()
-        entry = daily_by_date.get(str(d), {"orders": 0, "revenue_cents": 0})
-        daily_series.append({"date": str(d), "orders": entry["orders"], "revenue_cents": entry["revenue_cents"]})
+        entry = daily_by_date.get(str(d), {"orders": 0, "revenue_cents": 0, "verified": 0, "completed": 0, "cancelled": 0})
+        daily_series.append({
+            "date": str(d), "orders": entry["orders"], "revenue_cents": entry["revenue_cents"],
+            "verified": entry["verified"], "completed": entry["completed"], "cancelled": entry["cancelled"],
+        })
 
     return {
         "total_orders": total_orders,
