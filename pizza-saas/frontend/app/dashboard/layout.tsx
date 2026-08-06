@@ -20,7 +20,9 @@ const BADGE_EVENT_TO_HREF: Record<string, string> = {
   reservation_created: "/dashboard/prenotazioni",
 };
 
-const OWNER_LINKS = [
+type NavLink = { href: string; label: string; children?: { href: string; label: string }[] };
+
+const OWNER_LINKS: NavLink[] = [
   { href: "/dashboard", label: "Ordini" },
   { href: "/dashboard/statistiche", label: "Statistiche" },
   { href: "/dashboard/prenotazioni", label: "Prenotazioni" },
@@ -28,7 +30,13 @@ const OWNER_LINKS = [
   { href: "/dashboard/configurazione", label: "Configurazione" },
   { href: "/dashboard/menu", label: "Menu" },
   { href: "/dashboard/promozioni", label: "Promozioni" },
-  { href: "/dashboard/viralizza", label: "Viralizza" },
+  {
+    href: "/dashboard/viralizza", label: "Viralizza",
+    children: [
+      { href: "/dashboard/viralizza/webapp", label: "Webapp" },
+      { href: "/dashboard/viralizza/promoziona", label: "Promoziona" },
+    ],
+  },
   { href: "/dashboard/agente", label: "Agente AI" },
   { href: "/dashboard/consumi", label: "Consumi" },
 ];
@@ -36,7 +44,7 @@ const OWNER_LINKS = [
 // Sotto-account: ognuno vede solo la sua sezione - la restrizione vera è
 // lato backend (require_roles), questa lista serve solo a non mostrare
 // link che porterebbero comunque a un 403.
-const LINKS_BY_ROLE: Record<string, { href: string; label: string }[]> = {
+const LINKS_BY_ROLE: Record<string, NavLink[]> = {
   owner: OWNER_LINKS,
   cuoco: [{ href: "/dashboard", label: "Comande" }],
   delivery: [{ href: "/dashboard", label: "Consegne" }],
@@ -49,13 +57,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
 
   const links = me ? LINKS_BY_ROLE[me.role] || LINKS_BY_ROLE.owner : OWNER_LINKS;
-  const allowedHrefs = links.map((l) => l.href);
+  const allowedHrefs = links.flatMap((l) => [l.href, ...(l.children?.map((c) => c.href) || [])]);
 
   useAppUpdate();
   const pushStatus = usePushNotifications(!!me);
   useHeartbeat(!!me);
 
   const [badges, setBadges] = useState<Record<string, number>>({});
+  const [openGroup, setOpenGroup] = useState<string | null>(
+    links.find((l) => l.children?.some((c) => pathname.startsWith(c.href)))?.href ?? null
+  );
 
   useOrdersSocket(me?.tenant_id ?? null, (event) => {
     const href = BADGE_EVENT_TO_HREF[event.type];
@@ -97,27 +108,64 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <div className="admin-shell">
       <aside className="admin-sidebar">
         <h2>Pizza SaaS</h2>
-        {links.map((link) => (
-          <Link
-            key={link.href}
-            href={link.href}
-            className={pathname === link.href ? "active" : ""}
-            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
-          >
-            <span>{link.label}</span>
-            {!!badges[link.href] && (
-              <span
-                style={{
-                  background: "var(--accent)", color: "#fff", borderRadius: 999,
-                  fontSize: "0.72rem", fontWeight: 700, minWidth: 18, height: 18,
-                  display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px",
-                }}
-              >
-                {badges[link.href]}
-              </span>
-            )}
-          </Link>
-        ))}
+        {links.map((link) => {
+          if (link.children) {
+            const isOpen = openGroup === link.href;
+            const isActiveGroup = link.children.some((c) => pathname.startsWith(c.href));
+            return (
+              <div key={link.href}>
+                <button
+                  type="button"
+                  onClick={() => setOpenGroup(isOpen ? null : link.href)}
+                  className={isActiveGroup ? "active" : ""}
+                  style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                    width: "100%", background: "none", border: "none", textAlign: "left",
+                    font: "inherit", cursor: "pointer",
+                  }}
+                >
+                  <span>{link.label}</span>
+                  <span style={{ transition: "transform .15s", transform: isOpen ? "rotate(90deg)" : "none", opacity: 0.6 }}>›</span>
+                </button>
+                {isOpen && (
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {link.children.map((child) => (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        className={pathname === child.href ? "active" : ""}
+                        style={{ paddingLeft: 26, fontSize: "0.92rem" }}
+                      >
+                        {child.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={pathname === link.href ? "active" : ""}
+              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}
+            >
+              <span>{link.label}</span>
+              {!!badges[link.href] && (
+                <span
+                  style={{
+                    background: "var(--accent)", color: "#fff", borderRadius: 999,
+                    fontSize: "0.72rem", fontWeight: 700, minWidth: 18, height: 18,
+                    display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px",
+                  }}
+                >
+                  {badges[link.href]}
+                </span>
+              )}
+            </Link>
+          );
+        })}
         <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
           <ThemeToggle />
           <InstallAppButton />

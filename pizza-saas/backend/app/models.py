@@ -207,6 +207,11 @@ class TenantSettings(Base):
     widget_variant: Mapped[str] = mapped_column(String(20), default="full")
     widget_placement: Mapped[str] = mapped_column(String(20), default="bottom-right")
     widget_dismissible: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Link ai social del locale, usati nella sezione Viralizza > Promoziona
+    # per generare testi/pulsanti pronti da condividere - nessuno e' obbligatorio.
+    instagram_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    facebook_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    tiktok_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="settings")
 

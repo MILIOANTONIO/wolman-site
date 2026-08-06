@@ -210,6 +210,28 @@ async def update_widget_settings(body: WidgetSettingsBody, user: User = Depends(
     return _widget_dict(settings_row)
 
 
+class SocialLinksBody(BaseModel):
+    instagram_url: str | None = None
+    facebook_url: str | None = None
+    tiktok_url: str | None = None
+
+
+@router.get("/social-links")
+async def get_social_links(user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == user.tenant_id))).scalar_one()
+    return {"instagram_url": settings_row.instagram_url, "facebook_url": settings_row.facebook_url, "tiktok_url": settings_row.tiktok_url}
+
+
+@router.put("/social-links")
+async def update_social_links(body: SocialLinksBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == user.tenant_id))).scalar_one()
+    settings_row.instagram_url = body.instagram_url or None
+    settings_row.facebook_url = body.facebook_url or None
+    settings_row.tiktok_url = body.tiktok_url or None
+    await db.commit()
+    return {"instagram_url": settings_row.instagram_url, "facebook_url": settings_row.facebook_url, "tiktok_url": settings_row.tiktok_url}
+
+
 @router.post("/widget-avatar")
 async def upload_widget_avatar(file: UploadFile, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
