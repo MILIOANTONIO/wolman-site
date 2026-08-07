@@ -180,12 +180,12 @@ nav a { text-decoration: none; font-weight: 600; }
   padding: 24px 0; position: sticky; top: 0; height: 100vh;
 }
 .admin-sidebar h2 { padding: 0 20px; font-size: 1.05rem; margin-bottom: 20px; color: var(--text); }
-.admin-sidebar a {
+.admin-sidebar a, .admin-sidebar .nav-toggle {
   display: block; padding: 10px 20px; text-decoration: none; color: var(--muted);
   font-weight: 600; font-size: 0.95rem; border-left: 3px solid transparent;
 }
-.admin-sidebar a:hover { background: var(--card); color: var(--text); }
-.admin-sidebar a.active { border-left-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.admin-sidebar a:hover, .admin-sidebar .nav-toggle:hover { background: var(--card); color: var(--text); }
+.admin-sidebar a.active, .admin-sidebar .nav-toggle.active { border-left-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .admin-main { flex: 1; padding: 32px; }
 
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }

@@ -5,6 +5,14 @@ import { CameraButton } from "@/lib/CameraCapture";
 
 type Photo = { id: string; category: string; url: string; caption: string | null; position: number };
 type Status = { type: "ok" | "error"; text: string } | null;
+type PageDesign = { public_page_template: string; public_page_headline: string | null; public_page_tagline: string | null };
+
+const TEMPLATE_OPTIONS: { id: string; name: string; desc: string; bg: string; accent: string; ink: string; font: string }[] = [
+  { id: "rustico", name: "Forno a Legna", desc: "Calda e artigianale, stile trattoria", bg: "#F4EAD9", accent: "#B23A2E", ink: "#2C1B10", font: "Georgia, serif" },
+  { id: "moderna", name: "Napoletana Moderna", desc: "Minimal ed editoriale", bg: "#FAFAF8", accent: "#C4351E", ink: "#17140F", font: "-apple-system, sans-serif" },
+  { id: "notte", name: "Notte Italiana", desc: "Scura ed elegante, oro su nero", bg: "#14100D", accent: "#C99A4E", ink: "#F1E6D6", font: "Georgia, serif" },
+  { id: "vivace", name: "Vivace", desc: "Colorata e giocosa, per i social", bg: "#FFF7EA", accent: "#E2472A", ink: "#21160D", font: "-apple-system, sans-serif" },
+];
 type WidgetSettings = {
   widget_avatar_url: string | null;
   widget_color_1: string;
@@ -40,22 +48,42 @@ function buildEmbedCode(agentId: string, w: WidgetSettings): string {
 
 export default function ViralizzaPage() {
   const [slug, setSlug] = useState<string | null>(null);
+  const [businessName, setBusinessName] = useState<string | null>(null);
   const [agentId, setAgentId] = useState<string | null>(null);
   const [photos, setPhotos] = useState<Photo[] | null>(null);
   const [widget, setWidget] = useState<WidgetSettings | null>(null);
+  const [design, setDesign] = useState<PageDesign | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const [widgetStatus, setWidgetStatus] = useState<Status>(null);
   const [savingWidget, setSavingWidget] = useState(false);
+  const [savingDesign, setSavingDesign] = useState(false);
+  const [designStatus, setDesignStatus] = useState<Status>(null);
   const [copied, setCopied] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
 
   function reload() {
     setError(null);
-    api.get("/api/onboarding/tenant").then((t) => { setSlug(t.slug); setAgentId(t.elevenlabs_agent_id); }).catch((e) => setError(e.message));
+    api.get("/api/onboarding/tenant").then((t) => { setSlug(t.slug); setAgentId(t.elevenlabs_agent_id); setBusinessName(t.business_name); }).catch((e) => setError(e.message));
     api.get("/api/onboarding/media-photos").then(setPhotos).catch((e) => setError(e.message));
     api.get("/api/onboarding/widget-settings").then(setWidget).catch((e) => setError(e.message));
+    api.get("/api/onboarding/page-design").then(setDesign).catch((e) => setError(e.message));
+  }
+
+  async function saveDesign() {
+    if (!design) return;
+    setSavingDesign(true);
+    setDesignStatus(null);
+    try {
+      const updated = await api.put("/api/onboarding/page-design", design);
+      setDesign(updated);
+      setDesignStatus({ type: "ok", text: "Aspetto salvato" });
+    } catch (err) {
+      setDesignStatus({ type: "error", text: err instanceof Error ? err.message : "Errore" });
+    } finally {
+      setSavingDesign(false);
+    }
   }
 
   useEffect(reload, []);
@@ -137,7 +165,7 @@ export default function ViralizzaPage() {
     });
   }
 
-  if (!photos || !widget) {
+  if (!photos || !widget || !design) {
     return (
       <div>
         {error ? (
@@ -174,6 +202,60 @@ export default function ViralizzaPage() {
         ) : (
           <p className="muted">Caricamento link...</p>
         )}
+      </div>
+
+      <div className="card">
+        <h2>Aspetto della pagina</h2>
+        <p className="muted">Scegli lo stile e personalizza il titolo — la pagina pubblica usa già le tue foto e il tuo menu veri.</p>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12, marginBottom: 20 }}>
+          {TEMPLATE_OPTIONS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setDesign({ ...design, public_page_template: t.id })}
+              style={{
+                textAlign: "left", padding: 0, border: design.public_page_template === t.id ? "2px solid var(--accent)" : "2px solid var(--border)",
+                borderRadius: 10, overflow: "hidden", background: "none", cursor: "pointer",
+              }}
+            >
+              <div style={{ background: t.bg, color: t.ink, padding: "16px 12px 14px", fontFamily: t.font }}>
+                <div style={{ width: 22, height: 3, background: t.accent, borderRadius: 2, marginBottom: 8 }} />
+                <div style={{ fontWeight: 700, fontSize: "0.95rem" }}>Aa</div>
+                <div style={{ fontSize: "0.7rem", opacity: 0.7, marginTop: 4 }}>Pizzeria</div>
+              </div>
+              <div style={{ padding: "8px 10px", background: "var(--card)" }}>
+                <div style={{ fontWeight: 600, fontSize: "0.84rem" }}>{t.name}{design.public_page_template === t.id && " ✓"}</div>
+                <div className="muted" style={{ fontSize: "0.74rem" }}>{t.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 480 }}>
+          <div>
+            <label>Titolo principale</label>
+            <input
+              placeholder={`Benvenuto da ${businessName || "..."}`}
+              value={design.public_page_headline || ""}
+              onChange={(e) => setDesign({ ...design, public_page_headline: e.target.value })}
+              maxLength={200}
+            />
+          </div>
+          <div>
+            <label>Sottotitolo</label>
+            <input
+              placeholder="Pizzeria napoletana · Milazzo"
+              value={design.public_page_tagline || ""}
+              onChange={(e) => setDesign({ ...design, public_page_tagline: e.target.value })}
+              maxLength={200}
+            />
+          </div>
+        </div>
+        <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={saveDesign} disabled={savingDesign}>{savingDesign ? "Salvataggio..." : "Salva aspetto"}</button>
+          <StatusInline status={designStatus} />
+        </div>
       </div>
 
       <div className="card">

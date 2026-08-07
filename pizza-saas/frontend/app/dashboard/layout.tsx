@@ -117,7 +117,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <button
                   type="button"
                   onClick={() => setOpenGroup(isOpen ? null : link.href)}
-                  className={isActiveGroup ? "active" : ""}
+                  className={`nav-toggle${isActiveGroup ? " active" : ""}`}
                   style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
                     width: "100%", background: "none", border: "none", textAlign: "left",

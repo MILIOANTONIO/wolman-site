@@ -212,6 +212,13 @@ class TenantSettings(Base):
     instagram_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     facebook_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
     tiktok_url: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Stile scelto dal titolare per la pagina pubblica (/site/{slug}), vedi
+    # Viralizza > Webapp - uno tra "rustico", "moderna", "notte", "vivace".
+    # headline/tagline sono facoltativi: se vuoti la pagina usa un testo
+    # generato di default a partire da nome/citta' del locale.
+    public_page_template: Mapped[str] = mapped_column(String(20), default="moderna")
+    public_page_headline: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    public_page_tagline: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     tenant: Mapped["Tenant"] = relationship(back_populates="settings")
 

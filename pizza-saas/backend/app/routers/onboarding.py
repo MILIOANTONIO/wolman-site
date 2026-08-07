@@ -232,6 +232,41 @@ async def update_social_links(body: SocialLinksBody, user: User = Depends(get_cu
     return {"instagram_url": settings_row.instagram_url, "facebook_url": settings_row.facebook_url, "tiktok_url": settings_row.tiktok_url}
 
 
+class PageDesignBody(BaseModel):
+    public_page_template: str = "moderna"
+    public_page_headline: str | None = None
+    public_page_tagline: str | None = None
+
+
+_PAGE_TEMPLATES = {"rustico", "moderna", "notte", "vivace"}
+
+
+def _page_design_dict(s: TenantSettings) -> dict:
+    return {
+        "public_page_template": s.public_page_template,
+        "public_page_headline": s.public_page_headline,
+        "public_page_tagline": s.public_page_tagline,
+    }
+
+
+@router.get("/page-design")
+async def get_page_design(user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == user.tenant_id))).scalar_one()
+    return _page_design_dict(settings_row)
+
+
+@router.put("/page-design")
+async def update_page_design(body: PageDesignBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    if body.public_page_template not in _PAGE_TEMPLATES:
+        raise HTTPException(status_code=400, detail="Template non valido")
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == user.tenant_id))).scalar_one()
+    settings_row.public_page_template = body.public_page_template
+    settings_row.public_page_headline = body.public_page_headline or None
+    settings_row.public_page_tagline = body.public_page_tagline or None
+    await db.commit()
+    return _page_design_dict(settings_row)
+
+
 @router.post("/widget-avatar")
 async def upload_widget_avatar(file: UploadFile, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
