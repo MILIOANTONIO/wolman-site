@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useParams } from "next/navigation";
 import Script from "next/script";
 import { Playfair_Display, Inter, Caveat, Oswald } from "next/font/google";
@@ -51,7 +51,7 @@ const FlagFR = () => (<svg viewBox="0 0 30 20" width="100%" height="100%"><rect 
 const FlagDE = () => (<svg viewBox="0 0 30 20" width="100%" height="100%"><rect width="30" height="20" fill="#FFCE00" /><rect width="30" height="6.67" fill="#000" /><rect y="6.67" width="30" height="6.67" fill="#DD0000" /></svg>);
 const FlagES = () => (<svg viewBox="0 0 30 20" width="100%" height="100%"><rect width="30" height="20" fill="#AA151B" /><rect y="5" width="30" height="10" fill="#F1BF00" /></svg>);
 
-const LANGS: { code: Lang; Flag: () => JSX.Element; label: string }[] = [
+const LANGS: { code: Lang; Flag: () => ReactElement; label: string }[] = [
   { code: "it", Flag: FlagIT, label: "IT" },
   { code: "en", Flag: FlagGB, label: "EN" },
   { code: "fr", Flag: FlagFR, label: "FR" },
@@ -214,7 +214,7 @@ function SectionTitle({ eyebrow, children }: { eyebrow?: string; children: React
   );
 }
 
-type DecorSpec = { Icon: () => JSX.Element; size: number; top?: string; bottom?: string; left?: string; right?: string; duration: number; delay: number; rotate: number; color: string };
+type DecorSpec = { Icon: () => ReactElement; size: number; top?: string; bottom?: string; left?: string; right?: string; duration: number; delay: number; rotate: number; color: string };
 
 function HeroDecor({ items }: { items: DecorSpec[] }) {
   return (
