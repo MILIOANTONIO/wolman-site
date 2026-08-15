@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, uploadFiles } from "@/lib/api";
+import { api, API_URL, uploadFile, uploadFiles } from "@/lib/api";
 import { CameraButton } from "@/lib/CameraCapture";
 
-type Offering = { id: string; name: string; description: string | null; price_cents: number; unit: string | null; group_name: string | null; ingredients: string | null; is_available: boolean };
+type Offering = { id: string; name: string; description: string | null; price_cents: number; unit: string | null; group_name: string | null; ingredients: string | null; is_available: boolean; image_url: string | null; is_featured: boolean };
 type Status = { type: "ok" | "error"; text: string } | null;
 
 const PAGE_SIZE = 10;
@@ -92,10 +92,31 @@ export default function MenuPage() {
     setOfferings(offerings.map((x) => (x.id === o.id ? updated : x)));
   }
 
+  async function toggleFeatured(o: Offering) {
+    const updated = await api.put(`/api/onboarding/offerings/${o.id}`, { ...o, is_featured: !o.is_featured });
+    setOfferings(offerings.map((x) => (x.id === o.id ? updated : x)));
+  }
+
   async function removeOffering(id: string, name: string) {
     await api.delete(`/api/onboarding/offerings/${id}`);
     setOfferings(offerings.filter((o) => o.id !== id));
     setStatus({ type: "ok", text: `"${name}" rimossa` });
+  }
+
+  async function uploadOfferingImage(o: Offering, file: File) {
+    setStatus(null);
+    try {
+      const res = await uploadFile(`/api/onboarding/offerings/${o.id}/image`, file);
+      setOfferings(offerings.map((x) => (x.id === o.id ? { ...x, image_url: res.image_url } : x)));
+      setStatus({ type: "ok", text: `Foto di "${o.name}" aggiornata` });
+    } catch (err) {
+      setStatus({ type: "error", text: err instanceof Error ? err.message : "Errore caricamento foto" });
+    }
+  }
+
+  async function removeOfferingImage(o: Offering) {
+    await api.delete(`/api/onboarding/offerings/${o.id}/image`);
+    setOfferings(offerings.map((x) => (x.id === o.id ? { ...x, image_url: null } : x)));
   }
 
   async function importFiles(files: File[]) {
@@ -160,6 +181,7 @@ export default function MenuPage() {
               <table className="responsive-table">
                 <thead>
                   <tr>
+                    <th>Foto</th>
                     <th>Nome</th>
                     <th>Categoria</th>
                     <th>Ingredienti</th>
@@ -172,6 +194,9 @@ export default function MenuPage() {
                   {pageItems.map((o) =>
                     editingId === o.id ? (
                       <tr key={o.id}>
+                        <td data-label="Foto">
+                          {o.image_url ? <img src={`${API_URL}${o.image_url}`} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} /> : "—"}
+                        </td>
                         <td data-label="Nome"><input value={editDraft.name} onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })} style={{ minWidth: 120 }} /></td>
                         <td data-label="Categoria"><input value={editDraft.group_name} onChange={(e) => setEditDraft({ ...editDraft, group_name: e.target.value })} style={{ minWidth: 100 }} /></td>
                         <td data-label="Ingredienti"><input value={editDraft.ingredients} onChange={(e) => setEditDraft({ ...editDraft, ingredients: e.target.value })} style={{ minWidth: 140 }} /></td>
@@ -185,6 +210,21 @@ export default function MenuPage() {
                       </tr>
                     ) : (
                       <tr key={o.id} style={{ opacity: o.is_available ? 1 : 0.5 }}>
+                        <td data-label="Foto">
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            {o.image_url && <img src={`${API_URL}${o.image_url}`} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6 }} />}
+                            <input
+                              type="file" accept=".jpg,.jpeg,.png,.webp" id={`offering-img-${o.id}`} style={{ display: "none" }}
+                              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadOfferingImage(o, f); e.target.value = ""; }}
+                            />
+                            <label htmlFor={`offering-img-${o.id}`} className="secondary" style={{ padding: "4px 8px", fontSize: "0.75rem", cursor: "pointer" }}>
+                              {o.image_url ? "Cambia" : "Aggiungi"}
+                            </label>
+                            {o.image_url && (
+                              <button className="secondary" style={{ padding: "4px 8px", fontSize: "0.75rem" }} onClick={() => removeOfferingImage(o)}>✕</button>
+                            )}
+                          </div>
+                        </td>
                         <td data-label="Nome"><strong>{o.name}</strong></td>
                         <td data-label="Categoria" className="muted">{o.group_name || "—"}</td>
                         <td data-label="Ingredienti" className="muted">{o.ingredients || "—"}</td>
@@ -194,6 +234,12 @@ export default function MenuPage() {
                             <button className="secondary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => startEdit(o)}>Modifica</button>
                             <button className="secondary" style={{ padding: "4px 10px", fontSize: "0.8rem" }} onClick={() => toggleAvailable(o)}>
                               {o.is_available ? "Nascondi" : "Mostra"}
+                            </button>
+                            <button
+                              className="secondary" title="Mostra in vetrina nella pagina pubblica" onClick={() => toggleFeatured(o)}
+                              style={{ padding: "4px 10px", fontSize: "0.8rem", color: o.is_featured ? "var(--accent)" : undefined }}
+                            >
+                              {o.is_featured ? "★ In evidenza" : "☆ In evidenza"}
                             </button>
                           </div>
                         </td>

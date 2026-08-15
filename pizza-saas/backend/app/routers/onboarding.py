@@ -15,12 +15,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.session import get_current_owner
 from app.db import get_db
-from app.models import BookableResource, DidwwRegulatoryProfile, KycDocument, MediaPhoto, Offering, Promotion, Tenant, TenantSettings, User
+from app.models import (
+    BookableResource, DidwwRegulatoryProfile, KycDocument, MediaPhoto, Offering, OfferingTranslation,
+    Promotion, Tenant, TenantSettings, TenantTranslation, User,
+)
 from app.services import billing, didww_client, didww_geo
 from app.services.didww_activation import refresh_did_activation
 from app.services.elevenlabs_agents import generate_voice_preview, list_voices, update_agent
 from app.services.menu_import import extract_menu_items
 from app.services.prompt_builder import build_agent_prompt
+from app.services.translation import SUPPORTED_LANGS, translate_batch
 
 router = APIRouter(prefix="/api/onboarding", tags=["onboarding"])
 
@@ -61,6 +65,85 @@ async def _sync_agent(db: AsyncSession, tenant: Tenant) -> bool:
     except Exception as e:
         sys.stderr.write(f"Aggiornamento agente ElevenLabs fallito per tenant {tenant.id}: {e}\n")
         return False
+
+
+async def _translate_and_save_offering(db: AsyncSession, offering: Offering) -> None:
+    """Traduce nome/descrizione/ingredienti/gruppo del piatto in EN/FR/DE/ES e salva in
+    offering_translations, cosi' la pagina pubblica non chiama mai DeepL in tempo reale.
+    Fallisce in silenzio come _sync_agent: la voce di menu e' gia' salvata comunque."""
+    fields = ["name", "description", "ingredients", "group_name"]
+    values = [getattr(offering, f) or "" for f in fields]
+    if not any(v.strip() for v in values):
+        return
+    for lang in SUPPORTED_LANGS:
+        try:
+            translated = await translate_batch(db, values, lang)
+            existing = (
+                await db.execute(
+                    select(OfferingTranslation).where(OfferingTranslation.offering_id == offering.id, OfferingTranslation.lang == lang)
+                )
+            ).scalar_one_or_none()
+            row = existing or OfferingTranslation(offering_id=offering.id, lang=lang)
+            row.name, row.description, row.ingredients, row.group_name = (
+                translated[0] or offering.name, translated[1] or None, translated[2] or None, translated[3] or None,
+            )
+            if not existing:
+                db.add(row)
+            await db.commit()
+        except Exception as e:
+            sys.stderr.write(f"Traduzione piatto {offering.id} ({lang}) fallita: {e}\n")
+            await db.rollback()
+
+
+async def _translate_and_save_offerings_bulk(db: AsyncSession, offerings: list[Offering]) -> None:
+    """Come _translate_and_save_offering ma per un import con molte voci insieme: una sola
+    chiamata DeepL per lingua per TUTTI i piatti, invece di una per piatto (61 piatti x 4
+    lingue singolarmente sarebbe lentissimo - cosi' restano 4 chiamate in totale)."""
+    fields = ["name", "description", "ingredients", "group_name"]
+    flat_texts: list[str] = []
+    for o in offerings:
+        flat_texts.extend(getattr(o, f) or "" for f in fields)
+    if not any(v.strip() for v in flat_texts):
+        return
+    for lang in SUPPORTED_LANGS:
+        try:
+            translated = await translate_batch(db, flat_texts, lang)
+            offering_ids = [o.id for o in offerings]
+            existing_rows = (
+                await db.execute(select(OfferingTranslation).where(OfferingTranslation.offering_id.in_(offering_ids), OfferingTranslation.lang == lang))
+            ).scalars().all()
+            existing_by_offering = {r.offering_id: r for r in existing_rows}
+            for i, o in enumerate(offerings):
+                name, desc, ingr, group = translated[i * 4:i * 4 + 4]
+                row = existing_by_offering.get(o.id) or OfferingTranslation(offering_id=o.id, lang=lang)
+                row.name, row.description, row.ingredients, row.group_name = name or o.name, desc or None, ingr or None, group or None
+                if o.id not in existing_by_offering:
+                    db.add(row)
+            await db.commit()
+        except Exception as e:
+            sys.stderr.write(f"Traduzione bulk piatti ({lang}) fallita: {e}\n")
+            await db.rollback()
+
+
+async def _translate_and_save_tenant_texts(db: AsyncSession, tenant: Tenant, headline: str | None, tagline: str | None, category: str | None) -> None:
+    """Stessa idea di _translate_and_save_offering ma per headline/tagline/categoria della pagina pubblica."""
+    values = [headline or "", tagline or "", category or ""]
+    if not any(v.strip() for v in values):
+        return
+    for lang in SUPPORTED_LANGS:
+        try:
+            translated = await translate_batch(db, values, lang)
+            existing = (
+                await db.execute(select(TenantTranslation).where(TenantTranslation.tenant_id == tenant.id, TenantTranslation.lang == lang))
+            ).scalar_one_or_none()
+            row = existing or TenantTranslation(tenant_id=tenant.id, lang=lang)
+            row.headline, row.tagline, row.category = translated[0] or None, translated[1] or None, translated[2] or None
+            if not existing:
+                db.add(row)
+            await db.commit()
+        except Exception as e:
+            sys.stderr.write(f"Traduzione testi tenant {tenant.id} ({lang}) fallita: {e}\n")
+            await db.rollback()
 
 
 class BusinessInfoBody(BaseModel):
@@ -238,7 +321,7 @@ class PageDesignBody(BaseModel):
     public_page_tagline: str | None = None
 
 
-_PAGE_TEMPLATES = {"rustico", "moderna", "notte", "vivace"}
+_PAGE_TEMPLATES = {"rustico", "moderna", "notte", "vivace", "energica"}
 
 
 def _page_design_dict(s: TenantSettings) -> dict:
@@ -259,11 +342,13 @@ async def get_page_design(user: User = Depends(get_current_owner), db: AsyncSess
 async def update_page_design(body: PageDesignBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
     if body.public_page_template not in _PAGE_TEMPLATES:
         raise HTTPException(status_code=400, detail="Template non valido")
+    tenant = await _require_tenant(db, user)
     settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == user.tenant_id))).scalar_one()
     settings_row.public_page_template = body.public_page_template
     settings_row.public_page_headline = body.public_page_headline or None
     settings_row.public_page_tagline = body.public_page_tagline or None
     await db.commit()
+    await _translate_and_save_tenant_texts(db, tenant, settings_row.public_page_headline, settings_row.public_page_tagline, tenant.category)
     return _page_design_dict(settings_row)
 
 
@@ -436,6 +521,7 @@ class OfferingBody(BaseModel):
     group_name: str | None = None
     ingredients: str | None = None
     is_available: bool = True
+    is_featured: bool = False
 
 
 @router.get("/offerings")
@@ -452,6 +538,7 @@ async def create_offering(body: OfferingBody, user: User = Depends(get_current_o
     await db.commit()
     await db.refresh(offering)
     await _sync_agent(db, tenant)
+    await _translate_and_save_offering(db, offering)
     return _offering_dict(offering)
 
 
@@ -465,6 +552,7 @@ async def update_offering(offering_id: uuid.UUID, body: OfferingBody, user: User
         setattr(offering, field, value)
     await db.commit()
     await _sync_agent(db, tenant)
+    await _translate_and_save_offering(db, offering)
     return _offering_dict(offering)
 
 
@@ -477,6 +565,36 @@ async def delete_offering(offering_id: uuid.UUID, user: User = Depends(get_curre
     await db.delete(offering)
     await db.commit()
     await _sync_agent(db, tenant)
+    return {"ok": True}
+
+
+@router.post("/offerings/{offering_id}/image")
+async def upload_offering_image(offering_id: uuid.UUID, file: UploadFile, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    offering = await db.get(Offering, offering_id)
+    if not offering or offering.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Voce non trovata")
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    if ext not in ("png", "jpg", "jpeg", "webp"):
+        raise HTTPException(status_code=400, detail="Formato immagine non supportato (usa PNG, JPG o WEBP)")
+
+    tenant_dir = os.path.join(MEDIA_DIR, str(user.tenant_id))
+    os.makedirs(tenant_dir, exist_ok=True)
+    filename = f"offering-{offering_id.hex}.{ext}"
+    with open(os.path.join(tenant_dir, filename), "wb") as f:
+        f.write(await file.read())
+
+    offering.image_url = f"/uploads/media/{user.tenant_id}/{filename}"
+    await db.commit()
+    return {"ok": True, "image_url": offering.image_url}
+
+
+@router.delete("/offerings/{offering_id}/image")
+async def delete_offering_image(offering_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    offering = await db.get(Offering, offering_id)
+    if not offering or offering.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Voce non trovata")
+    offering.image_url = None
+    await db.commit()
     return {"ok": True}
 
 
@@ -503,6 +621,7 @@ async def import_offerings(files: list[UploadFile], user: User = Depends(get_cur
     for offering in created:
         await db.refresh(offering)
     await _sync_agent(db, tenant)
+    await _translate_and_save_offerings_bulk(db, created)
 
     return {"imported": len(created), "items": [_offering_dict(o) for o in created]}
 
@@ -511,6 +630,7 @@ def _offering_dict(o: Offering) -> dict:
     return {
         "id": str(o.id), "name": o.name, "description": o.description, "price_cents": o.price_cents,
         "unit": o.unit, "group_name": o.group_name, "ingredients": o.ingredients, "is_available": o.is_available,
+        "image_url": o.image_url, "is_featured": o.is_featured,
     }
 
 
@@ -523,6 +643,7 @@ class PromotionBody(BaseModel):
     discount_cents: int | None = None
     min_order_cents: int | None = None
     applies_to_group: str | None = None
+    offering_ids: list[str] = []  # piatti scelti come protagonisti della promo in vetrina (solo visivo)
     schedule: dict = {}  # {"lun": {"enabled": true, "from": "18:00", "to": "23:00"}, ...}
     is_active: bool = True
 
@@ -533,6 +654,7 @@ def _promotion_dict(p: Promotion) -> dict:
         "buy_qty": p.buy_qty, "get_qty": p.get_qty,
         "discount_percent": p.discount_percent, "discount_cents": p.discount_cents,
         "min_order_cents": p.min_order_cents, "applies_to_group": p.applies_to_group,
+        "offering_ids": [str(oid) for oid in (p.offering_ids or [])],
         "schedule": p.schedule or {}, "is_active": p.is_active,
     }
 

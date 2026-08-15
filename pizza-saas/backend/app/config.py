@@ -35,7 +35,10 @@ def _clean_env(name, default=None):
     value = os.environ.get(name)
     if value is None:
         return default
-    return value.strip()
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    return value
 
 
 def _to_asyncpg_url(url: str) -> str:
@@ -62,6 +65,8 @@ ANTHROPIC_API_KEY = _clean_env("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = _clean_env("ANTHROPIC_MODEL", "claude-haiku-4-5")
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_VERSION = "2023-06-01"
+
+DEEPL_API_KEY = _clean_env("DEEPL_API_KEY")
 
 ELEVENLABS_API_KEY = _clean_env("ELEVENLABS_API_KEY")
 ELEVENLABS_WEBHOOK_SECRET = _clean_env("ELEVENLABS_WEBHOOK_SECRET")

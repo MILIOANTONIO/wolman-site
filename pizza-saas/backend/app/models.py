@@ -148,9 +148,44 @@ class Offering(Base):
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # "a persona", "a notte", "a intervento"...
     group_name: Mapped[str | None] = mapped_column(String(100), nullable=True)  # raggruppamento in UI: "Pizze", "Camere Doppie", ...
     ingredients: Mapped[str | None] = mapped_column(Text, nullable=True)  # elenco libero, es. "pomodoro, mozzarella, basilico"
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False)  # scelto dal titolare per la vetrina in home sulla pagina pubblica
 
     tenant: Mapped["Tenant"] = relationship(back_populates="offerings")
+
+
+class OfferingTranslation(Base):
+    """
+    Traduzione salvata (EN/FR/DE/ES) di un piatto: generata via DeepL quando il
+    piatto viene creato/modificato/importato, non al volo quando un visitatore
+    apre la pagina - la pagina pubblica legge solo, non chiama mai DeepL.
+    """
+    __tablename__ = "offering_translations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    offering_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("offerings.id", ondelete="CASCADE"), index=True)
+    lang: Mapped[str] = mapped_column(String(5))
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ingredients: Mapped[str | None] = mapped_column(Text, nullable=True)
+    group_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    __table_args__ = (UniqueConstraint("offering_id", "lang", name="uq_offering_translation_offering_lang"),)
+
+
+class TenantTranslation(Base):
+    """Traduzione salvata (EN/FR/DE/ES) di headline/tagline/categoria della pagina pubblica, stesso principio di OfferingTranslation."""
+    __tablename__ = "tenant_translations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    lang: Mapped[str] = mapped_column(String(5))
+    headline: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tagline: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    __table_args__ = (UniqueConstraint("tenant_id", "lang", name="uq_tenant_translation_tenant_lang"),)
 
 
 class TenantSettings(Base):
@@ -397,6 +432,9 @@ class Promotion(Base):
     discount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     min_order_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)  # soglia minima opzionale (sull'intero ordine)
     applies_to_group: Mapped[str | None] = mapped_column(String(100), nullable=True)  # null = tutto il menu, altrimenti Offering.group_name
+    # Piatti scelti dal titolare da mostrare come "protagonisti" della promo sulla pagina pubblica
+    # (solo per la vetrina/foto - il calcolo dello sconto resta guidato da promo_type/applies_to_group).
+    offering_ids: Mapped[list] = mapped_column(JSON, default=list)
     # {"lun": {"enabled": true, "from": "18:00", "to": "23:00"}, "mar": {...}, ...}
     # "from"/"to" vuoti = valida tutto il giorno. Giorno assente/enabled=false = non valida quel giorno.
     schedule: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -423,6 +461,25 @@ class MediaPhoto(Base):
     created_at: Mapped[datetime.datetime] = _now()
 
     tenant: Mapped["Tenant"] = relationship()
+
+
+class TranslationCache(Base):
+    """
+    Cache delle traduzioni DeepL per la pagina pubblica multilingua: stesso
+    testo + stessa lingua non viene ritradotto ad ogni visita. Chiave = hash
+    del testo sorgente, cosi' righe identiche di locali diversi condividono
+    la cache invece di duplicarla per tenant.
+    """
+    __tablename__ = "translation_cache"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    text_hash: Mapped[str] = mapped_column(String(64), index=True)
+    target_lang: Mapped[str] = mapped_column(String(5))
+    source_text: Mapped[str] = mapped_column(Text)
+    translated_text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime.datetime] = _now()
+
+    __table_args__ = (UniqueConstraint("text_hash", "target_lang", name="uq_translation_cache_hash_lang"),)
 
 
 class Order(Base):

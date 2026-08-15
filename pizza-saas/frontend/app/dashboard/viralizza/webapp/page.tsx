@@ -12,6 +12,7 @@ const TEMPLATE_OPTIONS: { id: string; name: string; desc: string; bg: string; ac
   { id: "moderna", name: "Napoletana Moderna", desc: "Minimal ed editoriale", bg: "#FAFAF8", accent: "#C4351E", ink: "#17140F", font: "-apple-system, sans-serif" },
   { id: "notte", name: "Notte Italiana", desc: "Scura ed elegante, oro su nero", bg: "#14100D", accent: "#C99A4E", ink: "#F1E6D6", font: "Georgia, serif" },
   { id: "vivace", name: "Vivace", desc: "Colorata e giocosa, per i social", bg: "#FFF7EA", accent: "#E2472A", ink: "#21160D", font: "-apple-system, sans-serif" },
+  { id: "energica", name: "Energica", desc: "Rosso e giallo, animata e dinamica", bg: "#F7F3EC", accent: "#E5221D", ink: "#171717", font: "Oswald, -apple-system, sans-serif" },
 ];
 type WidgetSettings = {
   widget_avatar_url: string | null;

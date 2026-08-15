@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, API_URL } from "@/lib/api";
 
 type ScheduleDay = { enabled: boolean; from: string; to: string };
 type Schedule = Record<string, ScheduleDay>;
@@ -12,8 +12,11 @@ type Promotion = {
   buy_qty: number | null; get_qty: number | null;
   discount_percent: number | null; discount_cents: number | null;
   min_order_cents: number | null; applies_to_group: string | null;
+  offering_ids: string[];
   schedule: Schedule; is_active: boolean;
 };
+
+type OfferingOption = { id: string; name: string; group_name: string | null; image_url: string | null };
 
 type Status = { type: "ok" | "error"; text: string } | null;
 
@@ -35,6 +38,7 @@ type Draft = {
   buy_qty: string; get_qty: string;
   discount_percent: string; discount_cents: string;
   min_order_cents: string; applies_to_group: string;
+  offering_ids: string[];
   schedule: Schedule; is_active: boolean;
 };
 
@@ -42,6 +46,7 @@ const EMPTY_DRAFT: Draft = {
   title: "", promo_type: "buy_x_get_y",
   buy_qty: "", get_qty: "", discount_percent: "", discount_cents: "",
   min_order_cents: "", applies_to_group: "",
+  offering_ids: [],
   schedule: EMPTY_SCHEDULE, is_active: true,
 };
 
@@ -63,6 +68,7 @@ function promoToDraft(p: Promotion): Draft {
     discount_cents: p.discount_cents != null ? (p.discount_cents / 100).toFixed(2).replace(".", ",") : "",
     min_order_cents: p.min_order_cents != null ? (p.min_order_cents / 100).toFixed(2).replace(".", ",") : "",
     applies_to_group: p.applies_to_group || "",
+    offering_ids: p.offering_ids || [],
     schedule: { ...EMPTY_SCHEDULE, ...p.schedule },
     is_active: p.is_active,
   };
@@ -79,6 +85,7 @@ function draftToBody(d: Draft) {
     discount_cents: d.promo_type === "fixed_discount" ? parseEuro(d.discount_cents) : null,
     min_order_cents: parseEuro(d.min_order_cents),
     applies_to_group: d.applies_to_group || null,
+    offering_ids: d.offering_ids,
     schedule: d.schedule,
     is_active: d.is_active,
   };
@@ -115,6 +122,7 @@ function promoSummary(p: Promotion | Draft): string {
 export default function PromozioniPage() {
   const [promotions, setPromotions] = useState<Promotion[] | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [offerings, setOfferings] = useState<OfferingOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -125,9 +133,10 @@ export default function PromozioniPage() {
   function reload() {
     setError(null);
     api.get("/api/onboarding/promotions").then(setPromotions).catch((e) => setError(e.message));
-    api.get("/api/onboarding/offerings").then((items: { group_name: string | null }[]) => {
+    api.get("/api/onboarding/offerings").then((items: OfferingOption[]) => {
       const names = Array.from(new Set(items.map((o) => o.group_name).filter((g): g is string => !!g)));
       setCategories(names);
+      setOfferings(items);
     }).catch(() => {});
   }
 
@@ -292,6 +301,40 @@ export default function PromozioniPage() {
                   <option value="">Tutto il menu</option>
                   {categories.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <label>Pizze da mostrare in vetrina per questa promo (opzionale)</label>
+              <p className="muted" style={{ margin: "0 0 8px", fontSize: "0.8rem" }}>
+                Le foto scelte qui compaiono nel riquadro promozione della pagina pubblica. Se non scegli nulla, viene usata una foto generica.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {offerings.length === 0 && <span className="muted" style={{ fontSize: "0.85rem" }}>Nessun piatto nel menu ancora.</span>}
+                {offerings.map((o) => {
+                  const checked = draft.offering_ids.includes(o.id);
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() =>
+                        setDraft({
+                          ...draft,
+                          offering_ids: checked ? draft.offering_ids.filter((id) => id !== o.id) : [...draft.offering_ids, o.id],
+                        })
+                      }
+                      className={checked ? "" : "secondary"}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px 6px 6px", fontSize: "0.85rem" }}
+                    >
+                      {o.image_url ? (
+                        <img src={`${API_URL}${o.image_url}`} alt="" style={{ width: 28, height: 28, objectFit: "cover", borderRadius: 5 }} />
+                      ) : (
+                        <span style={{ width: 28, height: 28, borderRadius: 5, background: "rgba(120,100,80,0.18)", display: "inline-block" }} />
+                      )}
+                      {o.name}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
