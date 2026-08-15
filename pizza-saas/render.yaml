@@ -23,6 +23,8 @@ services:
         sync: false
       - key: ANTHROPIC_MODEL
         value: claude-haiku-4-5
+      - key: DEEPL_API_KEY
+        sync: false
       - key: ELEVENLABS_API_KEY
         sync: false
       - key: ELEVENLABS_WEBHOOK_SECRET
