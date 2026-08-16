@@ -1,0 +1,487 @@
+"""API della dashboard ordini del proprietario (comande in tempo reale)."""
+import datetime
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+import sys
+
+from app.auth.session import get_current_owner, require_roles
+from app.db import get_db
+from app.models import CreditTransaction, Offering, Order, OrderItem, Reservation, Tenant, TenantSettings, User
+from app.services import billing
+from app.routers.ws import manager as ws_manager
+from app.services.elevenlabs_agents import create_agent, get_outbound_call_status, place_outbound_call, update_agent
+from app.services.orders import (
+    OrderError,
+    _order_items_summary,
+    claim_available_orders,
+    trigger_order_confirmation_call,
+    update_order_status,
+    update_reservation_status,
+)
+from app.services.prompt_builder import build_agent_prompt, render_template_prompt
+
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+# Ordini: visibili a chi li prepara (cuoco) e a chi consegna (delivery),
+# oltre al titolare. Il ruolo "delivery" vede solo gli ordini a domicilio
+# (non ha senso che gestisca l'asporto).
+_ORDERS_ROLES = require_roles("owner", "cuoco", "delivery")
+_RESERVATIONS_ROLES = require_roles("owner", "receptionista")
+
+
+@router.get("/orders")
+async def list_orders(status: str | None = None, user: User = Depends(_ORDERS_ROLES), db: AsyncSession = Depends(get_db)):
+    query = select(Order).where(Order.tenant_id == user.tenant_id)
+    if user.role == "delivery":
+        # Ogni fattorino vede solo le consegne assegnate a lui (vedi
+        # auto_assign_order/claim_available_orders in services/orders.py) -
+        # non tutte le consegne del tenant, altrimenti con piu' fattorini
+        # vedrebbero tutti lo stesso elenco.
+        query = query.where(Order.order_type == "delivery", Order.assigned_to_user_id == user.id)
+    if status:
+        query = query.where(Order.status == status)
+    result = await db.execute(query.order_by(Order.created_at.desc()).limit(200))
+    orders = result.scalars().all()
+
+    assigned_ids = {o.assigned_to_user_id for o in orders if o.assigned_to_user_id}
+    emails_by_id = {}
+    if assigned_ids and user.role != "delivery":
+        rows = (await db.execute(select(User.id, User.email).where(User.id.in_(assigned_ids)))).all()
+        emails_by_id = {uid: email for uid, email in rows}
+
+    out = []
+    for order in orders:
+        rows = (
+            await db.execute(
+                select(OrderItem, Offering.name)
+                .join(Offering, Offering.id == OrderItem.offering_id)
+                .where(OrderItem.order_id == order.id)
+            )
+        ).all()
+        out.append({
+            "id": str(order.id), "order_number": order.order_number, "channel": order.channel,
+            "order_type": order.order_type, "customer_name": order.customer_name,
+            "customer_phone": order.customer_phone, "status": order.status,
+            "total_cents": order.total_cents, "created_at": order.created_at.isoformat(),
+            "delivery_address": order.delivery_address, "delivery_lat": order.delivery_lat, "delivery_lng": order.delivery_lng,
+            "assigned_to_user_id": str(order.assigned_to_user_id) if order.assigned_to_user_id else None,
+            "assigned_to_email": emails_by_id.get(order.assigned_to_user_id),
+            "confirmation_status": order.confirmation_status,
+            "items": [{"name": name, "quantity": i.quantity, "notes": i.notes} for i, name in rows],
+        })
+    return out
+
+
+class StatusBody(BaseModel):
+    status: str
+
+
+@router.post("/orders/{order_id}/status")
+async def set_order_status(order_id: uuid.UUID, body: StatusBody, user: User = Depends(_ORDERS_ROLES), db: AsyncSession = Depends(get_db)):
+    try:
+        order = await update_order_status(db, tenant_id=user.tenant_id, order_id=order_id, new_status=body.status, changed_by=user.email)
+    except OrderError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "status": order.status}
+
+
+@router.post("/orders/{order_id}/call-customer")
+async def call_order_customer(order_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Fa richiamare l'agente vocale al cliente (es. per avvisare di un
+    ordine annullato) invece del titolare in prima persona."""
+    order = await db.get(Order, order_id)
+    if not order or order.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+    if not order.customer_phone:
+        raise HTTPException(status_code=400, detail="Nessun numero di telefono registrato per questo ordine")
+
+    tenant = await db.get(Tenant, user.tenant_id)
+    if not tenant.elevenlabs_agent_id:
+        raise HTTPException(status_code=400, detail="Nessun agente vocale collegato a questa pizzeria")
+
+    items_summary = await _order_items_summary(db, order.id)
+    first_message = (
+        f"Buongiorno, la chiamo da {tenant.business_name} per avvisarla che siamo spiacenti ma il suo ordine "
+        f"({items_summary}) e' stato annullato. Ci scusiamo per il disagio."
+    )
+    try:
+        result = await place_outbound_call(agent_id=tenant.elevenlabs_agent_id, to_number=order.customer_phone, first_message=first_message)
+    except Exception as e:
+        sys.stderr.write(f"call_order_customer error per ordine {order_id}: {e}\n")
+        raise HTTPException(status_code=502, detail="Chiamata non riuscita - riprova o chiama il cliente direttamente")
+
+    return {"ok": True, "conversation_id": result.get("conversation_id")}
+
+
+@router.post("/orders/{order_id}/call-confirm")
+async def call_confirm_order(order_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Richiamata di conferma vera e propria (avvio manuale/riprova dal
+    bottone in dashboard - la prima chiamata parte in automatico a fine
+    telefonata, vedi elevenlabs_webhook.py). Da' all'agente il contesto di
+    QUESTO ordine (via first_message/dynamic_variables), lui rilegge e
+    raccoglie si'/no chiamando "confirm_order" (vedi agent_tools.py e la
+    sezione RICHIAMATA DI CONFERMA nel prompt)."""
+    order = await db.get(Order, order_id)
+    if not order or order.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+
+    ok = await trigger_order_confirmation_call(db, order)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Chiamata non riuscita - riprova o chiama il cliente direttamente")
+
+    return {"ok": True, "conversation_id": order.confirmation_conversation_id}
+
+
+@router.get("/orders/{order_id}/confirmation-status")
+async def get_order_confirmation_status(order_id: uuid.UUID, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Interrogato dal frontend con un breve polling mentre confirmation_status
+    e' "in_corso", per mostrare lo stato reale della telefonata (squilla, in
+    conversazione, fallita...) invece di restare bloccati su "in corso" fino
+    all'eventuale webhook di fine chiamata - che per una chiamata mai
+    connessa (es. numero inesistente) potrebbe non arrivare affatto."""
+    order = await db.get(Order, order_id)
+    if not order or order.tenant_id != user.tenant_id:
+        raise HTTPException(status_code=404, detail="Ordine non trovato")
+
+    if not order.confirmation_conversation_id or order.confirmation_status not in ("in_corso",):
+        return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
+
+    # Catturiamo l'id della conversazione interrogata: se nel frattempo (la
+    # chiamata a ElevenLabs sotto puo' metterci diversi secondi) e' partito
+    # un nuovo tentativo - es. l'utente ha premuto "Richiama" - non dobbiamo
+    # sovrascrivere lo stato piu' recente con l'esito di una conversazione
+    # ormai superata.
+    queried_conversation_id = order.confirmation_conversation_id
+
+    try:
+        call = await get_outbound_call_status(queried_conversation_id)
+    except Exception as e:
+        sys.stderr.write(f"get_order_confirmation_status error per ordine {order_id}: {e}\n")
+        return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
+
+    await db.refresh(order)
+    if order.confirmation_conversation_id != queried_conversation_id:
+        # Superato da un tentativo piu' recente: ignoriamo questo esito e
+        # ritorniamo lo stato attuale, non quello (stantio) appena letto.
+        return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": None}
+
+    if call["failed"]:
+        order.confirmation_status = "fallita"
+        order.confirmation_error = call["error_reason_it"]
+        await db.commit()
+        await ws_manager.broadcast(str(user.tenant_id), {
+            "type": "order_confirmation_changed", "order_id": str(order.id),
+            "confirmation_status": "fallita", "confirmation_error": order.confirmation_error,
+        })
+
+    return {"confirmation_status": order.confirmation_status, "confirmation_error": order.confirmation_error, "call_status_it": call["status_it"]}
+
+
+@router.get("/billing")
+async def get_billing(user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    tenant = await db.get(Tenant, user.tenant_id)
+    result = await db.execute(
+        select(CreditTransaction).where(CreditTransaction.tenant_id == user.tenant_id).order_by(CreditTransaction.created_at.desc()).limit(100)
+    )
+    transactions = [
+        {
+            "id": str(t.id), "type": t.type, "amount_cents": t.amount_cents,
+            "balance_after_cents": t.balance_after_cents, "description": t.description,
+            "created_at": t.created_at.isoformat(),
+        }
+        for t in result.scalars().all()
+    ]
+    return {**billing.usage_summary(tenant), "transactions": transactions}
+
+
+class TopupBody(BaseModel):
+    amount_cents: int
+
+
+@router.post("/billing/topup")
+async def topup_balance(body: TopupBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    # SIMULATO: nessun pagamento reale, il saldo viene semplicemente
+    # incrementato - da collegare a un vero gateway di pagamento prima di
+    # usarlo con clienti veri.
+    tenant = await db.get(Tenant, user.tenant_id)
+    try:
+        await billing.add_credit(db, tenant, body.amount_cents, description="Ricarica (simulata)")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "prepaid_balance_cents": tenant.prepaid_balance_cents}
+
+
+@router.get("/plans")
+async def get_plans_dashboard(user: User = Depends(get_current_owner)):
+    return billing.PLANS
+
+
+@router.get("/agent-prompt")
+async def get_agent_prompt(channel: str = "voice", user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Prompt reale usato dall'AI: personalizzato se il proprietario lo ha modificato, altrimenti generato da menu/orari/impostazioni."""
+    if channel not in ("voice", "whatsapp"):
+        raise HTTPException(status_code=400, detail="Canale non valido")
+    tenant = await db.get(Tenant, user.tenant_id)
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant.id))).scalar_one()
+    is_custom = bool(settings_row.custom_voice_prompt if channel == "voice" else settings_row.custom_whatsapp_prompt)
+    prompt = await build_agent_prompt(db, tenant, channel=channel)
+    return {"channel": channel, "prompt": prompt, "is_custom": is_custom, "elevenlabs_agent_id": tenant.elevenlabs_agent_id}
+
+
+class AgentPromptBody(BaseModel):
+    channel: str
+    prompt: str
+
+
+@router.put("/agent-prompt")
+async def set_agent_prompt(body: AgentPromptBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    if body.channel not in ("voice", "whatsapp"):
+        raise HTTPException(status_code=400, detail="Canale non valido")
+
+    tenant = await db.get(Tenant, user.tenant_id)
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant.id))).scalar_one()
+
+    if body.channel == "voice":
+        settings_row.custom_voice_prompt = body.prompt
+    else:
+        settings_row.custom_whatsapp_prompt = body.prompt
+    await db.commit()
+
+    pushed_to_elevenlabs = False
+    if body.channel == "voice" and tenant.elevenlabs_agent_id:
+        # L'agente esiste già (tenant approvato): aggiorniamo subito
+        # ElevenLabs, non serve aspettare una nuova approvazione admin.
+        try:
+            first_message = f"Ciao, grazie per aver chiamato {tenant.business_name}! Come posso aiutarti?"
+            await update_agent(
+                tenant.elevenlabs_agent_id, name=f"{tenant.business_name} - {settings_row.agent_persona_name}",
+                prompt=body.prompt, first_message=first_message, voice_id=settings_row.agent_voice_id,
+            )
+            pushed_to_elevenlabs = True
+        except Exception as e:
+            sys.stderr.write(f"Aggiornamento prompt su ElevenLabs fallito per tenant {user.tenant_id}: {e}\n")
+            raise HTTPException(status_code=502, detail="Prompt salvato, ma l'aggiornamento su ElevenLabs è fallito - riprova")
+
+    return {"ok": True, "pushed_to_elevenlabs": pushed_to_elevenlabs}
+
+
+@router.post("/agent-prompt/reset")
+async def reset_agent_prompt(channel: str = "voice", user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    """Torna al prompt generato automaticamente da menu/orari/impostazioni, scartando la personalizzazione."""
+    if channel not in ("voice", "whatsapp"):
+        raise HTTPException(status_code=400, detail="Canale non valido")
+
+    tenant = await db.get(Tenant, user.tenant_id)
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == tenant.id))).scalar_one()
+    if channel == "voice":
+        settings_row.custom_voice_prompt = None
+    else:
+        settings_row.custom_whatsapp_prompt = None
+    await db.commit()
+
+    prompt = await render_template_prompt(db, tenant, channel=channel)
+    return {"ok": True, "prompt": prompt}
+
+
+@router.get("/stats")
+async def get_owner_stats(user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    total_orders = (
+        await db.execute(select(func.count()).select_from(Order).where(Order.tenant_id == user.tenant_id))
+    ).scalar_one()
+    total_revenue_cents = (
+        await db.execute(select(func.coalesce(func.sum(Order.total_cents), 0)).where(Order.tenant_id == user.tenant_id))
+    ).scalar_one()
+    orders_by_status = dict(
+        (await db.execute(
+            select(Order.status, func.count()).where(Order.tenant_id == user.tenant_id).group_by(Order.status)
+        )).all()
+    )
+    orders_by_channel = dict(
+        (await db.execute(
+            select(Order.channel, func.count()).where(Order.tenant_id == user.tenant_id).group_by(Order.channel)
+        )).all()
+    )
+
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=13)
+    day = func.date(Order.created_at)
+    daily_rows = (
+        await db.execute(
+            select(
+                day.label("day"),
+                func.count().label("orders"),
+                func.coalesce(func.sum(Order.total_cents), 0).label("revenue_cents"),
+                func.count().filter(Order.confirmation_status == "confermato").label("verified"),
+                func.count().filter(Order.status == "consegnata").label("completed"),
+                func.count().filter(Order.status == "annullato").label("cancelled"),
+            )
+            .where(Order.tenant_id == user.tenant_id, Order.created_at >= since)
+            .group_by(day)
+            .order_by(day)
+        )
+    ).all()
+    daily_by_date = {
+        str(row.day): {
+            "orders": row.orders, "revenue_cents": row.revenue_cents,
+            "verified": row.verified, "completed": row.completed, "cancelled": row.cancelled,
+        }
+        for row in daily_rows
+    }
+    daily_series = []
+    for i in range(14):
+        d = (since + datetime.timedelta(days=i)).date()
+        entry = daily_by_date.get(str(d), {"orders": 0, "revenue_cents": 0, "verified": 0, "completed": 0, "cancelled": 0})
+        daily_series.append({
+            "date": str(d), "orders": entry["orders"], "revenue_cents": entry["revenue_cents"],
+            "verified": entry["verified"], "completed": entry["completed"], "cancelled": entry["cancelled"],
+        })
+
+    return {
+        "total_orders": total_orders,
+        "total_revenue_cents": total_revenue_cents,
+        "orders_by_status": orders_by_status,
+        "orders_by_channel": orders_by_channel,
+        "daily_last_14_days": daily_series,
+    }
+
+
+@router.get("/reservations")
+async def list_reservations(user: User = Depends(_RESERVATIONS_ROLES), db: AsyncSession = Depends(get_db)):
+    settings_row = (await db.execute(select(TenantSettings).where(TenantSettings.tenant_id == user.tenant_id))).scalar_one()
+
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=1)
+    until = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=30)
+    rows = (
+        await db.execute(
+            select(Reservation)
+            .where(Reservation.tenant_id == user.tenant_id, Reservation.starts_at >= since, Reservation.starts_at <= until)
+            .order_by(Reservation.starts_at)
+        )
+    ).scalars().all()
+
+    return {
+        "table_capacity": settings_row.table_capacity or {},
+        "reservations": [
+            {
+                "id": str(r.id), "customer_name": r.customer_name, "customer_phone": r.customer_phone,
+                "party_size": r.party_size, "starts_at": r.starts_at.isoformat(), "status": r.status, "notes": r.notes,
+            }
+            for r in rows
+        ],
+    }
+
+
+class ReservationStatusBody(BaseModel):
+    status: str  # confermata, annullata, completata, no_show
+
+
+@router.post("/reservations/{reservation_id}/status")
+async def set_reservation_status(reservation_id: uuid.UUID, body: ReservationStatusBody, user: User = Depends(_RESERVATIONS_ROLES), db: AsyncSession = Depends(get_db)):
+    try:
+        reservation = await update_reservation_status(db, tenant_id=user.tenant_id, reservation_id=reservation_id, new_status=body.status)
+    except OrderError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "status": reservation.status}
+
+
+# Tracciamento posizione fattorini: il sotto-account "delivery" manda la
+# propria posizione GPS dal browser del telefono ogni pochi secondi mentre
+# ha una consegna attiva; il titolare vede tutti i fattorini attivi su una
+# mappa. Solo l'ultima posizione nota viene tenuta (niente storico tragitto).
+_DELIVERY_ONLINE_MINUTES = 10
+
+
+class DeliveryLocationBody(BaseModel):
+    lat: float
+    lng: float
+
+
+@router.put("/delivery/location")
+async def update_delivery_location(body: DeliveryLocationBody, user: User = Depends(require_roles("delivery")), db: AsyncSession = Depends(get_db)):
+    user.current_lat = body.lat
+    user.current_lng = body.lng
+    user.location_updated_at = datetime.datetime.now(datetime.timezone.utc)
+    await db.commit()
+
+    from app.routers.ws import manager as ws_manager
+    await ws_manager.broadcast(str(user.tenant_id), {
+        "type": "delivery_location_changed",
+        "user_id": str(user.id),
+        "email": user.email,
+        "lat": body.lat,
+        "lng": body.lng,
+    })
+    return {"ok": True}
+
+
+class DutyBody(BaseModel):
+    on_duty: bool
+
+
+@router.put("/delivery/duty")
+async def set_duty(body: DutyBody, user: User = Depends(require_roles("delivery")), db: AsyncSession = Depends(get_db)):
+    user.on_duty = body.on_duty
+    await db.commit()
+
+    claimed = 0
+    if body.on_duty:
+        claimed = await claim_available_orders(db, tenant_id=user.tenant_id, rider=user)
+
+    return {"ok": True, "on_duty": user.on_duty, "claimed_orders": claimed}
+
+
+@router.get("/delivery/locations")
+async def list_delivery_locations(user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    since = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=_DELIVERY_ONLINE_MINUTES)
+    rows = (
+        await db.execute(
+            select(User).where(
+                User.tenant_id == user.tenant_id, User.role == "delivery",
+                User.location_updated_at.is_not(None), User.location_updated_at >= since,
+            )
+        )
+    ).scalars().all()
+    return [
+        {
+            "user_id": str(u.id), "email": u.email, "lat": u.current_lat, "lng": u.current_lng,
+            "updated_at": u.location_updated_at.isoformat(), "on_duty": u.on_duty,
+        }
+        for u in rows
+    ]
+
+
+_ANY_TEAM_ROLE = require_roles("owner", "cuoco", "receptionista", "delivery")
+_ONLINE_WITHIN_MINUTES = 3
+_ROLE_LABELS = {"owner": "Titolare", "cuoco": "Cuoco/pizzaiolo", "receptionista": "Receptionist", "delivery": "Delivery"}
+
+
+@router.get("/team-presence")
+async def team_presence(user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
+    rows = (
+        await db.execute(select(User).where(User.tenant_id == user.tenant_id).order_by(User.role, User.created_at))
+    ).scalars().all()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return [
+        {
+            "id": str(u.id), "email": u.email, "role": u.role, "role_label": _ROLE_LABELS.get(u.role, u.role),
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+            "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
+            "online": bool(u.last_seen_at and (now - u.last_seen_at) <= datetime.timedelta(minutes=_ONLINE_WITHIN_MINUTES)),
+            "on_duty": u.on_duty if u.role == "delivery" else None,
+        }
+        for u in rows
+    ]
+
+
+@router.put("/heartbeat")
+async def heartbeat(user: User = Depends(_ANY_TEAM_ROLE), db: AsyncSession = Depends(get_db)):
+    """Chiamato dal frontend ogni minuto mentre la dashboard e' aperta (vedi
+    dashboard/layout.tsx), per sapere chi e' online in questo momento - non
+    serve nient'altro lato client, e' solo un timestamp."""
+    user.last_seen_at = datetime.datetime.now(datetime.timezone.utc)
+    await db.commit()
+    return {"ok": True}
