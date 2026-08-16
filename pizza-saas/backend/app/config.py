@@ -119,6 +119,22 @@ DIDWW_BASE_URL = (
 
 FRONTEND_URL = _clean_env("FRONTEND_URL", "http://localhost:3000")
 
+# URL pubblico del backend stesso - Render la imposta automaticamente come
+# RENDER_EXTERNAL_URL su ogni servizio, usata per costruire il redirect_uri
+# OAuth di Meta (deve combaciare esattamente con quello configurato
+# nell'app Meta) e per gli URL immagine passati ai provider AI esterni
+# (vedi app/services/reel_queue.py). In locale non e' impostata: fallback
+# a localhost, il flusso OAuth Meta funziona solo in produzione.
+BACKEND_URL = _clean_env("RENDER_EXTERNAL_URL", "http://localhost:8000")
+
+# App Meta ("Wolman Promoziona" su developers.facebook.com) usata per
+# collegare Pagina Facebook/Instagram Business dei tenant - vedi
+# app/services/social_oauth.py. Un'unica app per tutta la piattaforma,
+# ogni tenant autorizza separatamente il proprio account (pattern
+# "tech provider", spec Promoziona sez. 107).
+META_APP_ID = _clean_env("META_APP_ID")
+META_APP_SECRET = _clean_env("META_APP_SECRET")
+
 # Per la geocodifica server-side dell'indirizzo di consegna (assegnazione
 # fattorini per vicinanza + percorso). Deve avere "Geocoding API" abilitata
 # nel progetto Google Cloud - una chiave con solo restrizione HTTP referrer
