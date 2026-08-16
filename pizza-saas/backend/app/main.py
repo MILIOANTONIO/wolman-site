@@ -20,6 +20,7 @@ from app.routers.onboarding import router as onboarding_router
 from app.routers.onboarding import UPLOADS_DIR
 from app.routers.promoziona_content import router as promoziona_content_router
 from app.routers.promoziona_reels import router as promoziona_reels_router
+from app.routers.promoziona_social import router as promoziona_social_router
 from app.routers.public import router as public_router
 from app.routers.push import router as push_router
 from app.routers.team import router as team_router
@@ -83,6 +84,7 @@ app.include_router(whatsapp_router)
 app.include_router(ws_router)
 app.include_router(promoziona_content_router)
 app.include_router(promoziona_reels_router)
+app.include_router(promoziona_social_router)
 
 
 @app.get("/api/health")

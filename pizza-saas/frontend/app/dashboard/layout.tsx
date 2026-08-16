@@ -37,6 +37,7 @@ const OWNER_LINKS: NavLink[] = [
       { href: "/dashboard/viralizza/promoziona", label: "Promoziona" },
       { href: "/dashboard/viralizza/promoziona/libreria", label: "Libreria" },
       { href: "/dashboard/viralizza/promoziona/crea", label: "Crea Reel" },
+      { href: "/dashboard/viralizza/promoziona/social", label: "Social" },
     ],
   },
   { href: "/dashboard/agente", label: "Agente AI" },

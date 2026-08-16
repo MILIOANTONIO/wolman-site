@@ -665,4 +665,57 @@ class ReelGeneration(Base):
     created_at: Mapped[datetime.datetime] = _now()
     completed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    reel: Mapped["Reel"] = relationship()
+
+class SocialConnection(Base):
+    """
+    Un account social/ads collegato dal titolare (Promoziona milestone 4+):
+    Meta copre sia Instagram/Facebook (pubblicazione organica) sia Meta Ads
+    nella stessa connessione OAuth, TikTok/Google sono connessioni separate.
+    Token SEMPRE cifrati (app/services/encryption.py) - mai in chiaro nel DB,
+    mai loggati, mai esposti al frontend.
+    """
+    __tablename__ = "social_connections"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(20))  # "meta" | "tiktok" | "google"
+    external_account_id: Mapped[str] = mapped_column(String(200))
+    account_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    encrypted_access_token: Mapped[str] = mapped_column(String(2000))
+    encrypted_refresh_token: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    expires_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scopes: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # connected -> needs_reauth -> disconnected (mai fallire chiamate ripetutamente in silenzio, vedi spec sez. 75)
+    status: Mapped[str] = mapped_column(String(20), default="connected")
+    created_at: Mapped[datetime.datetime] = _now()
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        onupdate=lambda: datetime.datetime.now(datetime.timezone.utc),
+    )
+
+    tenant: Mapped["Tenant"] = relationship()
+
+
+class SocialAccount(Base):
+    """
+    Asset pubblicabile dentro una SocialConnection (una Pagina Facebook puo'
+    avere piu' profili Instagram collegati, un account Google Ads puo' avere
+    piu' clienti, ecc. - vedi spec sez. 73, "un business puo' avere piu' Pagine").
+    Il titolare sceglie quale usare, non si assume mai il primo (spec sez. 72).
+    """
+    __tablename__ = "social_accounts"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    connection_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("social_connections.id", ondelete="CASCADE"), index=True)
+    provider: Mapped[str] = mapped_column(String(20))
+    external_id: Mapped[str] = mapped_column(String(200))
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    username: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    type: Mapped[str] = mapped_column(String(30))  # "page" | "instagram_business" | "ad_account" | "channel" | "gbp_location"
+    is_selected: Mapped[bool] = mapped_column(Boolean, default=False)  # scelto dal titolare per pubblicare/promuovere
+    created_at: Mapped[datetime.datetime] = _now()
+
+    tenant: Mapped["Tenant"] = relationship()
+    connection: Mapped["SocialConnection"] = relationship()
