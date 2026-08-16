@@ -5,7 +5,7 @@ import { api, API_URL } from "@/lib/api";
 type Asset = { id: string; type: "image" | "video"; source_url: string; thumbnail_url: string | null; caption: string | null };
 type Template = { id: string; name: string; category: string; duration: number; ken_burns: string; text_position: string; accent_color: string };
 type Reel = {
-  id: string; template_id: string; status: string; duration: number;
+  id: string; mode: string; template_id: string | null; prompt: string | null; status: string; duration: number;
   video_url: string | null; thumbnail_url: string | null; caption: string | null; created_at: string;
 };
 type Status = { type: "ok" | "error"; text: string } | null;
@@ -30,7 +30,9 @@ export default function CreaReelPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+  const [mode, setMode] = useState<"template" | "ai_video">("template");
   const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
   const [caption, setCaption] = useState("");
   const [generating, setGenerating] = useState(false);
   const [status, setStatus] = useState<Status>(null);
@@ -63,13 +65,18 @@ export default function CreaReelPage() {
     }, 1500);
   }
 
+  const canGenerate = !!selectedAsset && (mode === "template" ? !!selectedTemplate : true);
+
   async function createAndGenerate() {
-    if (!selectedAsset || !selectedTemplate) return;
+    if (!canGenerate || !selectedAsset) return;
     setGenerating(true);
     setStatus(null);
     try {
       const draft: Reel = await api.post("/api/promoziona/reels", {
-        template_id: selectedTemplate, source_asset_id: selectedAsset, caption: caption || null,
+        mode, source_asset_id: selectedAsset,
+        template_id: mode === "template" ? selectedTemplate : null,
+        prompt: mode === "ai_video" ? prompt || null : null,
+        caption: caption || null,
       });
       setReels((prev) => [draft, ...(prev || [])]);
       const queued: Reel = await api.post(`/api/promoziona/reels/${draft.id}/generate`);
@@ -134,27 +141,47 @@ export default function CreaReelPage() {
       </div>
 
       <div className="card">
-        <h2>2. Scegli lo stile</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
-          {templates.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={selectedTemplate === t.id ? "" : "secondary"}
-              onClick={() => setSelectedTemplate(t.id)}
-              style={{ textAlign: "left" }}
-            >
-              <div>{t.name}</div>
-              <div className="muted" style={{ fontSize: "0.75rem", fontWeight: 400 }}>{t.duration}s · {t.category}</div>
-            </button>
-          ))}
+        <h2>2. Scegli come crearlo</h2>
+        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+          <button type="button" className={mode === "template" ? "" : "secondary"} onClick={() => setMode("template")}>
+            Da modello
+          </button>
+          <button type="button" className={mode === "ai_video" ? "" : "secondary"} onClick={() => setMode("ai_video")}>
+            Con AI (beta)
+          </button>
         </div>
+
+        {mode === "template" ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10 }}>
+            {templates.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={selectedTemplate === t.id ? "" : "secondary"}
+                onClick={() => setSelectedTemplate(t.id)}
+                style={{ textAlign: "left" }}
+              >
+                <div>{t.name}</div>
+                <div className="muted" style={{ fontSize: "0.75rem", fontWeight: 400 }}>{t.duration}s · {t.category}</div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div>
+            <p className="muted" style={{ marginTop: 0 }}>
+              La foto prende vita con l&apos;intelligenza artificiale invece dell&apos;animazione fissa — funzione in arrivo,
+              può non essere ancora disponibile.
+            </p>
+            <label>Descrivi il movimento che vuoi (opzionale)</label>
+            <input placeholder='es. "vapore che sale dalla pizza appena sfornata"' value={prompt} onChange={(e) => setPrompt(e.target.value)} maxLength={200} />
+          </div>
+        )}
 
         <label style={{ marginTop: 16 }}>Testo sul video (opzionale)</label>
         <input placeholder='es. "Margherita fatta a mano"' value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={80} />
 
         <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
-          <button type="button" disabled={!selectedAsset || !selectedTemplate || generating} onClick={createAndGenerate}>
+          <button type="button" disabled={!canGenerate || generating} onClick={createAndGenerate}>
             {generating ? "Creazione in corso..." : "Crea Reel"}
           </button>
           <StatusInline status={status} />

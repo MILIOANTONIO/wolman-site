@@ -20,14 +20,19 @@ router = APIRouter(prefix="/api/promoziona", tags=["promoziona"])
 
 
 class CreateReelBody(BaseModel):
-    template_id: str
+    mode: str = "template"  # "template" | "ai_video"
     source_asset_id: uuid.UUID
+    template_id: str | None = None  # richiesto se mode="template"
+    prompt: str | None = None  # usato se mode="ai_video"
     caption: str | None = None
+
+
+AI_VIDEO_DURATION = 5  # secondi - lunghezza tipica di una generazione Kling image-to-video
 
 
 def _reel_dict(r: Reel) -> dict:
     return {
-        "id": str(r.id), "template_id": r.template_id, "status": r.status,
+        "id": str(r.id), "mode": r.mode, "template_id": r.template_id, "prompt": r.prompt, "status": r.status,
         "duration": r.duration, "video_url": r.video_url, "thumbnail_url": r.thumbnail_url,
         "caption": r.caption, "created_at": r.created_at.isoformat(),
     }
@@ -54,16 +59,24 @@ async def get_reel(reel_id: uuid.UUID, user: User = Depends(get_current_owner), 
 
 @router.post("/reels")
 async def create_reel(body: CreateReelBody, user: User = Depends(get_current_owner), db: AsyncSession = Depends(get_db)):
-    if body.template_id not in TEMPLATES_BY_ID:
-        raise HTTPException(status_code=400, detail="Template non valido")
+    if body.mode not in ("template", "ai_video"):
+        raise HTTPException(status_code=400, detail="Modalita' non valida")
     asset = await db.get(ContentAsset, body.source_asset_id)
     if not asset or asset.tenant_id != user.tenant_id:
         raise HTTPException(status_code=404, detail="Contenuto sorgente non trovato")
 
-    template = TEMPLATES_BY_ID[body.template_id]
+    if body.mode == "template":
+        if body.template_id not in TEMPLATES_BY_ID:
+            raise HTTPException(status_code=400, detail="Template non valido")
+        duration = TEMPLATES_BY_ID[body.template_id]["duration"]
+    else:
+        duration = AI_VIDEO_DURATION
+
     reel = Reel(
-        tenant_id=user.tenant_id, source_asset_id=asset.id, template_id=body.template_id,
-        duration=template["duration"], caption=body.caption, status="draft",
+        tenant_id=user.tenant_id, source_asset_id=asset.id, mode=body.mode,
+        template_id=body.template_id if body.mode == "template" else None,
+        prompt=body.prompt if body.mode == "ai_video" else None,
+        duration=duration, caption=body.caption, status="draft",
     )
     db.add(reel)
     await db.commit()

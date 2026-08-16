@@ -90,6 +90,11 @@ async def record_call_minutes(db: AsyncSession, tenant: Tenant, minutes: int) ->
     )
 
 
+async def charge_reel_ai_generation(db: AsyncSession, tenant: Tenant, amount_cents: int, description: str) -> CreditTransaction:
+    """Addebita una generazione Reel con provider AI (Promoziona milestone 3) - stesso ledger di tutto il resto."""
+    return await _record_transaction(db, tenant, type="reel_ai_generation_charge", amount_cents=-abs(amount_cents), description=description)
+
+
 def usage_summary(tenant: Tenant) -> dict:
     plan = plan_info(tenant.plan)
     included = plan["included_minutes"]

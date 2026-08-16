@@ -623,18 +623,20 @@ class ContentAsset(Base):
 
 class Reel(Base):
     """
-    Video promozionale generato da un template (Promoziona, milestone 2: solo
-    rendering deterministico locale, nessuna AI a pagamento) a partire da un
+    Video promozionale generato da un template deterministico (milestone 2,
+    mode="template") o da un provider AI foto->video (milestone 3,
+    mode="ai_video", vedi app/services/video_providers.py) a partire da un
     ContentAsset. template_id e' una chiave verso TEMPLATES (data-driven, in
-    app/services/video_templates.py), non una tabella - i template sono pochi
-    e definiti in codice, non personalizzabili dal titolare per ora.
+    app/services/video_templates.py), non una tabella - solo per mode="template".
     """
     __tablename__ = "reels"
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     source_asset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("content_assets.id", ondelete="SET NULL"), nullable=True)
-    template_id: Mapped[str] = mapped_column(String(50))
+    mode: Mapped[str] = mapped_column(String(20), default="template")  # "template" | "ai_video"
+    template_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    prompt: Mapped[str | None] = mapped_column(String(500), nullable=True)  # solo mode="ai_video"
     # draft -> queued -> rendering -> ready | failed
     status: Mapped[str] = mapped_column(String(20), default="draft")
     duration: Mapped[int] = mapped_column(Integer, default=15)
