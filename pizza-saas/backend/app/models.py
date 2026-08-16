@@ -619,3 +619,48 @@ class ContentAsset(Base):
     created_at: Mapped[datetime.datetime] = _now()
 
     tenant: Mapped["Tenant"] = relationship()
+
+
+class Reel(Base):
+    """
+    Video promozionale generato da un template (Promoziona, milestone 2: solo
+    rendering deterministico locale, nessuna AI a pagamento) a partire da un
+    ContentAsset. template_id e' una chiave verso TEMPLATES (data-driven, in
+    app/services/video_templates.py), non una tabella - i template sono pochi
+    e definiti in codice, non personalizzabili dal titolare per ora.
+    """
+    __tablename__ = "reels"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    source_asset_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("content_assets.id", ondelete="SET NULL"), nullable=True)
+    template_id: Mapped[str] = mapped_column(String(50))
+    # draft -> queued -> rendering -> ready | failed
+    status: Mapped[str] = mapped_column(String(20), default="draft")
+    duration: Mapped[int] = mapped_column(Integer, default=15)
+    video_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    thumbnail_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    caption: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime.datetime] = _now()
+    updated_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.timezone.utc),
+        onupdate=lambda: datetime.datetime.now(datetime.timezone.utc),
+    )
+
+    tenant: Mapped["Tenant"] = relationship()
+    source_asset: Mapped["ContentAsset | None"] = relationship()
+
+
+class ReelGeneration(Base):
+    """Un tentativo di rendering per un Reel - storico/diagnostica, permette il retry senza perdere il precedente errore."""
+    __tablename__ = "reel_generations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    reel_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("reels.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="queued")  # "queued" | "rendering" | "ready" | "failed"
+    error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime.datetime] = _now()
+    completed_at: Mapped[datetime.datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    reel: Mapped["Reel"] = relationship()

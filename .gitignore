@@ -2,6 +2,9 @@ wolman-site/server/.env.local
 unitel-1mobile/server/.env.local
 pizza-saas/backend/.env.local
 pizza-saas/frontend/.env.local
+ecostrade-agent/.env.local
+ecostrade-agent/data/uopi-snapshot.tsv
+ecostrade-agent/node_modules/
 __pycache__/
 *.pyc
 pizza-saas/backend/venv/
@@ -9,3 +12,8 @@ pizza-saas/backend/uploads/
 pizza-saas/frontend/node_modules/
 pizza-saas/frontend/.next/
 pizza-saas/frontend/tsconfig.tsbuildinfo
+pizza-saas/backend/watchdog.log
+pizza-saas/backend/uvicorn_watchdog_*.log
+pizza-saas/frontend/watchdog.log
+pizza-saas/frontend/next_watchdog_*.log
+pizza-saas/backend/bin/

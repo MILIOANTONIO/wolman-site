@@ -104,6 +104,16 @@ export default function PromozionaPage() {
         </Link>
       </div>
 
+      <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Crea Reel</h2>
+          <p className="muted" style={{ margin: "4px 0 0" }}>Trasforma una foto in un video promozionale — nuovo.</p>
+        </div>
+        <Link href="/dashboard/viralizza/promoziona/crea">
+          <button type="button">Crea Reel →</button>
+        </Link>
+      </div>
+
       <div className="card">
         <h2>I tuoi social</h2>
         <p className="muted">Colleghiamo questi link alla tua pagina pubblica, così chi ti trova online può seguirti anche lì.</p>

@@ -19,12 +19,14 @@ from app.routers.elevenlabs_webhook import router as elevenlabs_webhook_router
 from app.routers.onboarding import router as onboarding_router
 from app.routers.onboarding import UPLOADS_DIR
 from app.routers.promoziona_content import router as promoziona_content_router
+from app.routers.promoziona_reels import router as promoziona_reels_router
 from app.routers.public import router as public_router
 from app.routers.push import router as push_router
 from app.routers.team import router as team_router
 from app.routers.whatsapp_webhook import router as whatsapp_router
 from app.routers.ws import router as ws_router
 from app.services.billing_enforcement import run_enforcement_cycle
+from app.services.reel_queue import worker_loop as reel_worker_loop
 
 # Ogni quante ore ricontrollare rinnovi/sospensioni/cancellazioni numeri -
 # non serve piu' frequente: i periodi di grazia si contano in giorni.
@@ -44,8 +46,10 @@ async def _enforcement_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(_enforcement_loop())
+    reel_task = asyncio.create_task(reel_worker_loop())
     yield
     task.cancel()
+    reel_task.cancel()
 
 
 app = FastAPI(title="Pizza SaaS API", lifespan=lifespan)
@@ -78,6 +82,7 @@ app.include_router(elevenlabs_webhook_router)
 app.include_router(whatsapp_router)
 app.include_router(ws_router)
 app.include_router(promoziona_content_router)
+app.include_router(promoziona_reels_router)
 
 
 @app.get("/api/health")
