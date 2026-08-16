@@ -31,7 +31,14 @@ class RenderError(Exception):
     pass
 
 
-def _ken_burns_filter(ken_burns: str, duration: int, fps: int = 30) -> str:
+# 720x1280 invece di 1080x1920 e 24fps invece di 30: sul piano Render Starter (RAM limitata,
+# condivisa con l'app web che serve anche gli ordini live) un render a piena risoluzione ha
+# fatto esaurire la memoria e riavviare l'istanza durante un test reale - qualita' comunque
+# piu' che sufficiente per un Reel social, va rivisto se/quando si passa a un worker dedicato.
+_OUT_WIDTH, _OUT_HEIGHT, _OUT_FPS = 720, 1280, 24
+
+
+def _ken_burns_filter(ken_burns: str, duration: int, fps: int = _OUT_FPS) -> str:
     """Espressione zoompan per il movimento richiesto dal template - vedi video_templates.py."""
     frames = duration * fps
     if ken_burns == "zoom_in":
@@ -46,7 +53,7 @@ def _ken_burns_filter(ken_burns: str, duration: int, fps: int = 30) -> str:
     else:  # pan_left
         z = "1.15"
         x, y = f"(iw-iw/zoom)*(1-on/{frames})", "ih/2-(ih/zoom/2)"
-    return f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s=1080x1920:fps={fps}"
+    return f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={_OUT_WIDTH}x{_OUT_HEIGHT}:fps={fps}"
 
 
 def _text_position_y(position: str) -> str:
@@ -80,8 +87,8 @@ async def render_reel(reel: Reel, source_asset: ContentAsset) -> tuple[str, str]
     ken_burns = _ken_burns_filter(template["ken_burns"], duration)
 
     vf_parts = [
-        "scale=1080:1920:force_original_aspect_ratio=increase",
-        "crop=1080:1920",
+        f"scale={_OUT_WIDTH}:{_OUT_HEIGHT}:force_original_aspect_ratio=increase",
+        f"crop={_OUT_WIDTH}:{_OUT_HEIGHT}",
         ken_burns,
     ]
     if reel.caption:
@@ -91,8 +98,8 @@ async def render_reel(reel: Reel, source_asset: ContentAsset) -> tuple[str, str]
         # sfuggito, altrimenti "C" viene letto come nome opzione e tutto il resto come valore orfano.
         font_path = _FONT_PATH.replace("\\", "/").replace(":", "\\:")
         vf_parts.append(
-            "drawtext=fontfile='%s':text='%s':fontcolor=white:fontsize=64:"
-            "box=1:boxcolor=black@0.45:boxborderw=24:x=(w-text_w)/2:y=%s"
+            "drawtext=fontfile='%s':text='%s':fontcolor=white:fontsize=42:"
+            "box=1:boxcolor=black@0.45:boxborderw=16:x=(w-text_w)/2:y=%s"
             % (font_path, text, y_expr)
         )
     vf = ",".join(vf_parts)
@@ -103,7 +110,7 @@ async def render_reel(reel: Reel, source_asset: ContentAsset) -> tuple[str, str]
         "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-vf", vf,
         "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-preset", "veryfast", "-threads", "1", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-shortest",
         out_path,
     ]
