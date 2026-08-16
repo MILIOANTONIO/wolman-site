@@ -18,6 +18,7 @@ from app.routers.dashboard import router as dashboard_router
 from app.routers.elevenlabs_webhook import router as elevenlabs_webhook_router
 from app.routers.onboarding import router as onboarding_router
 from app.routers.onboarding import UPLOADS_DIR
+from app.routers.promoziona_content import router as promoziona_content_router
 from app.routers.public import router as public_router
 from app.routers.push import router as push_router
 from app.routers.team import router as team_router
@@ -76,6 +77,7 @@ app.include_router(agent_tools_router)
 app.include_router(elevenlabs_webhook_router)
 app.include_router(whatsapp_router)
 app.include_router(ws_router)
+app.include_router(promoziona_content_router)
 
 
 @app.get("/api/health")

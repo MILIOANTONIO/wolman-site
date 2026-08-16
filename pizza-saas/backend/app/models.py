@@ -599,3 +599,23 @@ class PlatformSettings(Base):
         default=lambda: datetime.datetime.now(datetime.timezone.utc),
         onupdate=lambda: datetime.datetime.now(datetime.timezone.utc),
     )
+
+
+class ContentAsset(Base):
+    """
+    Libreria contenuti di Promoziona (modulo Viralizza -> Promoziona): foto/video
+    sorgente caricati dal titolare, materia prima per i Reel generati - non sono
+    le foto della pagina pubblica (quelle restano su MediaPhoto).
+    """
+    __tablename__ = "content_assets"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    type: Mapped[str] = mapped_column(String(20))  # "image" | "video"
+    source_url: Mapped[str] = mapped_column(String(500))
+    thumbnail_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    caption: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="ready")  # "ready" | "processing" | "failed"
+    created_at: Mapped[datetime.datetime] = _now()
+
+    tenant: Mapped["Tenant"] = relationship()

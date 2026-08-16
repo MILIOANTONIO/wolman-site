@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { api } from "@/lib/api";
 
 type SocialLinks = { instagram_url: string | null; facebook_url: string | null; tiktok_url: string | null };
@@ -92,6 +93,16 @@ export default function PromozionaPage() {
     <div style={{ maxWidth: 900 }}>
       <h1>Promoziona</h1>
       <p className="muted">I tuoi social e testi pronti da condividere per far conoscere la pizzeria e le promozioni attive.</p>
+
+      <div className="card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>Libreria contenuti</h2>
+          <p className="muted" style={{ margin: "4px 0 0" }}>Foto e video sorgente per creare i Reel — nuovo.</p>
+        </div>
+        <Link href="/dashboard/viralizza/promoziona/libreria">
+          <button type="button">Apri libreria →</button>
+        </Link>
+      </div>
 
       <div className="card">
         <h2>I tuoi social</h2>
